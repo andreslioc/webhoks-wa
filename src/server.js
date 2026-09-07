@@ -4,12 +4,17 @@ import express from 'express';
 import { sendMessage, uploadMedia, esc } from './telegram.js';
 import { downloadMedia, guessFilename } from './whatsapp.js';
 import { header, describe, describeStatus, MEDIA_KIND } from './formatter.js';
+import { notify } from './notify.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Guardamos el cuerpo crudo para poder validar la firma de Meta
 app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
+app.use(express.urlencoded({ extended: true }));
+
+// Webhook generico: lo llamas desde tu plataforma y avisa al asesor en Telegram
+app.use(notify);
 
 function firmaValida(req) {
   const secret = process.env.WHATSAPP_APP_SECRET;
