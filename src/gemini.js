@@ -3,7 +3,7 @@ import express from 'express';
 export const gemini = express.Router();
 
 const MAX_MESSAGE_LENGTH = 8_000;
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3.1-flash-lite';
 
 function autorizado(req) {
   const secreto = process.env.GEMINI_WEBHOOK_SECRET || process.env.NOTIFY_SECRET;
@@ -61,7 +61,7 @@ export async function consultarGemini({ mensaje, previousInteractionId }, fetchI
   if (!apiKey) throw new Error('Falta GEMINI_API_KEY');
 
   const body = {
-    model: process.env.GEMINI_MODEL || DEFAULT_MODEL,
+    model: process.env.GEMINI_MODEL || process.env.AI_MODEL_DEFAULT || DEFAULT_MODEL,
     input: mensaje,
     store: true,
     generation_config: {

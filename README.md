@@ -120,7 +120,7 @@ Configura estas variables en Vercel:
 ```text
 GEMINI_API_KEY=tu_api_key_de_Google_AI_Studio
 GEMINI_WEBHOOK_SECRET=un_secreto_largo
-GEMINI_MODEL=gemini-2.5-flash
+AI_MODEL_DEFAULT=gemini-3.1-flash-lite
 GEMINI_SYSTEM_PROMPT=Responde como asesor de Drop Shop, de forma breve y clara.
 ```
 
