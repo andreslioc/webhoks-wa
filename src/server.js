@@ -10,8 +10,18 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Guardamos el cuerpo crudo para poder validar la firma de Meta
-app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
-app.use(express.urlencoded({ extended: true }));
+const parseJson = express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } });
+const parseForm = express.urlencoded({ extended: true });
+
+// En serverless (Vercel) el runtime puede haber consumido ya el cuerpo de la
+// peticion. Si se le pasa a body-parser, se queda esperando un stream que nunca
+// llega y la peticion muere por timeout. Cuando eso pasa, se salta el parseo.
+function parsearCuerpo(req, res, next) {
+  if (req.readableEnded || req.body !== undefined) return next();
+  parseJson(req, res, (err) => (err ? next(err) : parseForm(req, res, next)));
+}
+
+app.use(parsearCuerpo);
 
 // Webhook generico: lo llamas desde tu plataforma y avisa al asesor en Telegram
 app.use(notify);

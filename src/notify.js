@@ -40,13 +40,29 @@ function esClaveId(clave) {
   return ultima === 'id' && padre !== undefined && PADRES_ID.includes(padre);
 }
 
+function jsonCorto(valor) {
+  try {
+    return JSON.stringify(valor);
+  } catch {
+    return String(valor);
+  }
+}
+
 function aplanar(obj, prefijo = '', salida = {}, nivel = 0) {
   for (const [k, v] of Object.entries(obj || {})) {
     const clave = prefijo ? `${prefijo}.${k}` : k;
     if (v && typeof v === 'object' && !Array.isArray(v) && nivel < 2) {
       aplanar(v, clave, salida, nivel + 1);
     } else if (v !== null && v !== undefined && v !== '') {
-      salida[clave] = Array.isArray(v) ? v.join(', ') : String(v);
+      // Los objetos mas profundos que el limite se serializan: String(v) daria
+      // "[object Object]" y se perderia justo lo que se quiere ver en el aviso.
+      if (Array.isArray(v)) {
+        salida[clave] = v.map((x) => (x && typeof x === 'object' ? jsonCorto(x) : String(x))).join(', ');
+      } else if (typeof v === 'object') {
+        salida[clave] = jsonCorto(v);
+      } else {
+        salida[clave] = String(v);
+      }
     }
   }
   return salida;
