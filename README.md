@@ -1,9 +1,10 @@
 # Webhook → Telegram
 
-Dos webhooks en un mismo servidor:
+Tres webhooks en un mismo servidor:
 
 1. **`/notify`** — webhook **generico**: lo pegas en tu plataforma (Zenvia, Make, n8n, un formulario, tu chatbot…) y cada llamada publica un aviso en el chat de Telegram del asesor.
 2. **`/webhook`** — webhook de **WhatsApp Cloud API** (Meta): reenvia los mensajes entrantes de WhatsApp al mismo chat.
+3. **`/gemini`** — recibe un turno desde un Workflow de Zernio, consulta Gemini y devuelve la respuesta junto con el id necesario para conservar el contexto.
 
 Si solo necesitas avisar al asesor, te basta con `/notify` y las variables de Telegram.
 
@@ -112,7 +113,55 @@ Toma `NOTIFY_SECRET` del `.env` y avisa si el aviso salio sin boton. Con `NOTIFY
 
 ---
 
-## 2. WhatsApp Cloud API — `/webhook`
+## 2. Respuesta con Gemini para Zernio — `/gemini`
+
+Configura estas variables en Vercel:
+
+```text
+GEMINI_API_KEY=tu_api_key_de_Google_AI_Studio
+GEMINI_WEBHOOK_SECRET=un_secreto_largo
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_SYSTEM_PROMPT=Responde como asesor de Drop Shop, de forma breve y clara.
+```
+
+En el nodo **Webhook** de Zernio usa:
+
+```text
+POST https://tu-dominio/gemini?token=TU_SECRETO
+```
+
+Para el primer turno, manda este JSON y guarda la respuesta como `leadResponse`:
+
+```json
+{
+  "mensaje": "{{Response}}"
+}
+```
+
+Para los turnos siguientes usa el id devuelto por Gemini, de modo que recuerde la conversacion:
+
+```json
+{
+  "mensaje": "{{Response}}",
+  "previousInteractionId": "{{leadResponse.body.interactionId}}"
+}
+```
+
+La respuesta del endpoint tiene esta forma:
+
+```json
+{
+  "ok": true,
+  "respuesta": "Claro, ¿que producto estas buscando?",
+  "interactionId": "v1_..."
+}
+```
+
+En el siguiente nodo **Send message** usa `{{leadResponse.body.respuesta}}` y regresalo a **Wait for reply**. La salida `timeout` de ese nodo puede ir a **End**.
+
+---
+
+## 3. WhatsApp Cloud API — `/webhook`
 
 Opcional. Recibe los mensajes entrantes de WhatsApp y los reenvia al mismo chat de Telegram. Si solo quieres el aviso al asesor, ignora esta seccion.
 
@@ -157,6 +206,7 @@ Si falta `WHATSAPP_TOKEN` o falla la descarga de un archivo, se envia igualmente
 | Metodo | Ruta | Para que |
 |---|---|---|
 | `POST` / `GET` | `/notify` | aviso al asesor desde tu plataforma |
+| `POST` | `/gemini` | respuesta de Gemini para el Workflow de Zernio |
 | `GET` | `/webhook` | verificacion del webhook de Meta (`hub.challenge`) |
 | `POST` | `/webhook` | eventos de WhatsApp; valida `X-Hub-Signature-256` si hay `WHATSAPP_APP_SECRET` |
 | `GET` | `/health` | comprobacion de vida |
@@ -169,6 +219,7 @@ src/telegram.js    Cliente de la Bot API (texto y subida de archivos)
 src/whatsapp.js    Descarga de media desde la Graph API
 src/formatter.js   Traduccion de cada tipo de mensaje de WhatsApp a HTML de Telegram
 src/notify.js      Webhook generico /notify y armado del aviso al asesor
+src/gemini.js      Puente conversacional entre Zernio y Gemini
 ```
 
 ## Notas

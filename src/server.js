@@ -5,6 +5,7 @@ import { sendMessage, uploadMedia, esc } from './telegram.js';
 import { downloadMedia, guessFilename } from './whatsapp.js';
 import { header, describe, describeStatus, MEDIA_KIND } from './formatter.js';
 import { notify } from './notify.js';
+import { gemini } from './gemini.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,6 +26,10 @@ app.use(parsearCuerpo);
 
 // Webhook generico: lo llamas desde tu plataforma y avisa al asesor en Telegram
 app.use(notify);
+
+// Puente Zernio -> Gemini: genera una respuesta y conserva el id de la
+// interaccion para que el siguiente turno mantenga el contexto.
+app.use(gemini);
 
 function firmaValida(req) {
   const secret = process.env.WHATSAPP_APP_SECRET;
