@@ -33,6 +33,13 @@ const PADRES_ID = ['conversation', 'conversacion', 'chat', 'ticket', 'session', 
 
 // Pasa cualquier estilo de nombre a snake_case: Zernio manda camelCase
 // (conversationId), otras plataformas mandan espacios o guiones.
+// Plumbing interno de la plataforma: no le dice nada al asesor
+const CLAVES_RUIDO = [
+  'event', 'event_type', 'tipo_evento',
+  'workflow_id', 'workflow', 'execution_id', 'execution', 'flow_id', 'node_id',
+  'request_id', 'trace_id', 'webhook_id', 'account_id', 'tenant_id',
+];
+
 const norm = (k) => String(k)
   .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
   .toLowerCase()
@@ -114,10 +121,13 @@ export function construirAviso(datos, titulo) {
   const usadas = new Set();
   const lineas = [];
 
+  const publicados = new Set();
+
   for (const { etiqueta, claves } of CAMPOS) {
     const encontrada = Object.keys(plano).find((k) => claves.includes(hoja(k)));
     if (encontrada) {
       usadas.add(encontrada);
+      publicados.add(plano[encontrada]);
       lineas.push(`<b>${etiqueta}:</b> ${esc(plano[encontrada])}`);
     }
   }
@@ -133,7 +143,14 @@ export function construirAviso(datos, titulo) {
     }
   }
 
-  const extras = Object.keys(plano).filter((k) => !usadas.has(k));
+  // El volcado de campos desconocidos evita perder datos con plataformas nuevas,
+  // pero con Zernio es casi todo plumbing y repeticion. Se filtra, y con
+  // NOTIFY_EXTRAS=false se apaga del todo.
+  const extras = process.env.NOTIFY_EXTRAS === 'false' ? [] : Object.keys(plano).filter(
+    (k) => !usadas.has(k)
+        && !CLAVES_RUIDO.includes(hoja(k))
+        && !publicados.has(plano[k]), // ya salio arriba con su etiqueta
+  );
   if (extras.length) {
     if (lineas.length) lineas.push('');
     for (const k of extras.slice(0, 25)) {

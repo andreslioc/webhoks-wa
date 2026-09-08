@@ -63,7 +63,9 @@ Mensaje: Quiere hablar con un asesor
 | Mensaje | `mensaje`, `message`, `texto`, `text`, `comentario`, `consulta`, `nota` |
 | Origen | `origen`, `source`, `canal`, `channel`, `campana` |
 
-Cualquier otro campo que mandes se publica igualmente debajo, asi que **no se pierde nada** aunque tu plataforma use otros nombres. Manda `titulo` (o `title`) para cambiar el encabezado de ese aviso concreto.
+Los nombres se comparan sin distinguir estilo, asi que `conversationId`, `conversation_id` y `Conversation ID` cuentan igual.
+
+Cualquier otro campo que mandes se publica igualmente debajo, asi que **no se pierde nada** aunque tu plataforma use otros nombres. Se omiten los duplicados (un valor que ya salio con su etiqueta arriba) y el plumbing de la plataforma (`event`, `workflowId`, `executionId`, `requestId`, `traceId`...). Con `NOTIFY_EXTRAS=false` se apaga ese volcado y solo quedan los campos con etiqueta. Manda `titulo` (o `title`) para cambiar el encabezado de ese aviso concreto.
 
 **Boton para contestar**: si el aviso trae el enlace de la conversacion, en Telegram aparece un boton que lo abre directo. Hay dos formas de darselo:
 
