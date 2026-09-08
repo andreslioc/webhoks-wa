@@ -9,8 +9,10 @@ const CAMPOS = [
   { etiqueta: 'Telefono', claves: ['telefono', 'phone', 'celular', 'whatsapp', 'numero', 'movil', 'tel'] },
   { etiqueta: 'Email',    claves: ['email', 'correo', 'mail', 'e_mail'] },
   { etiqueta: 'Motivo',   claves: ['motivo', 'asunto', 'reason', 'subject', 'tema', 'servicio'] },
-  { etiqueta: 'Mensaje',  claves: ['mensaje', 'message', 'texto', 'text', 'comentario', 'consulta', 'nota'] },
-  { etiqueta: 'Origen',   claves: ['origen', 'source', 'canal', 'channel', 'campana', 'campaign'] },
+  { etiqueta: 'Mensaje',  claves: ['mensaje', 'message', 'texto', 'text', 'comentario', 'consulta', 'nota',
+                                 'inbound_text', 'last_message', 'trigger_text'] },
+  { etiqueta: 'Origen',   claves: ['origen', 'source', 'canal', 'channel', 'campana', 'campaign',
+                                 'platform', 'plataforma'] },
 ];
 
 // Enlace directo al chat, si la plataforma ya lo manda armado
@@ -29,7 +31,12 @@ const CLAVES_ID = [
 // p.ej. {"conversacion": {"id": 999}} -> clave aplanada "conversacion.id"
 const PADRES_ID = ['conversation', 'conversacion', 'chat', 'ticket', 'session', 'sesion', 'thread'];
 
-const norm = (k) => String(k).toLowerCase().replace(/[\s-]+/g, '_');
+// Pasa cualquier estilo de nombre a snake_case: Zernio manda camelCase
+// (conversationId), otras plataformas mandan espacios o guiones.
+const norm = (k) => String(k)
+  .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+  .toLowerCase()
+  .replace(/[\s-]+/g, '_');
 const hoja = (k) => norm(k.split('.').pop());
 
 function esClaveId(clave) {
@@ -117,7 +124,14 @@ export function construirAviso(datos, titulo) {
 
   // El enlace va en el boton, no repetido como texto crudo
   const enlace = enlaceChat(plano);
-  if (enlace) usadas.add(enlace.clave);
+  if (enlace) {
+    usadas.add(enlace.clave);
+    // El mismo id suele venir repetido (raiz y anidado): se publica una sola vez
+    const valor = plano[enlace.clave];
+    for (const k of Object.keys(plano)) {
+      if (plano[k] === valor && esClaveId(k)) usadas.add(k);
+    }
+  }
 
   const extras = Object.keys(plano).filter((k) => !usadas.has(k));
   if (extras.length) {
