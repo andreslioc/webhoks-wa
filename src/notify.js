@@ -13,7 +13,32 @@ const CAMPOS = [
   { etiqueta: 'Origen',   claves: ['origen', 'source', 'canal', 'channel', 'campana', 'campaign'] },
 ];
 
+// Enlace directo al chat, si la plataforma ya lo manda armado
+const CLAVES_URL = [
+  'link', 'url', 'enlace', 'chat_url', 'url_chat', 'conversation_url', 'conversacion_url',
+  'permalink', 'deeplink', 'deep_link',
+];
+
+// Id de la conversacion, para armar el enlace con CHAT_URL_TEMPLATE
+const CLAVES_ID = [
+  'conversation_id', 'conversacion_id', 'id_conversacion', 'conversation', 'conversacion',
+  'chat_id', 'id_chat', 'ticket', 'ticket_id', 'session_id', 'sesion_id', 'thread_id',
+];
+
+// Padres que hacen que un simple "id" cuente como id de conversacion,
+// p.ej. {"conversacion": {"id": 999}} -> clave aplanada "conversacion.id"
+const PADRES_ID = ['conversation', 'conversacion', 'chat', 'ticket', 'session', 'sesion', 'thread'];
+
 const norm = (k) => String(k).toLowerCase().replace(/[\s-]+/g, '_');
+const hoja = (k) => norm(k.split('.').pop());
+
+function esClaveId(clave) {
+  const partes = clave.split('.').map(norm);
+  const ultima = partes[partes.length - 1];
+  if (CLAVES_ID.includes(ultima)) return true;
+  const padre = partes[partes.length - 2];
+  return ultima === 'id' && padre !== undefined && PADRES_ID.includes(padre);
+}
 
 function aplanar(obj, prefijo = '', salida = {}, nivel = 0) {
   for (const [k, v] of Object.entries(obj || {})) {
@@ -27,19 +52,56 @@ function aplanar(obj, prefijo = '', salida = {}, nivel = 0) {
   return salida;
 }
 
-// Arma el aviso: primero los campos reconocidos, luego el resto de lo que venga
+// Telegram solo acepta http/https (y tg://) en los botones de enlace
+function urlValida(valor) {
+  try {
+    const u = new URL(String(valor));
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+// Devuelve { url, clave } con el enlace para contestar, o null si no se puede armar.
+// Primero busca una URL ya lista en el payload; si no hay, la arma con la plantilla y el id.
+export function enlaceChat(plano) {
+  for (const k of Object.keys(plano)) {
+    if (CLAVES_URL.includes(hoja(k)) && urlValida(plano[k])) {
+      return { url: plano[k], clave: k };
+    }
+  }
+
+  const plantilla = process.env.CHAT_URL_TEMPLATE;
+  if (plantilla && plantilla.includes('{id}')) {
+    for (const k of Object.keys(plano)) {
+      if (esClaveId(k)) {
+        const url = plantilla.replace('{id}', encodeURIComponent(plano[k]));
+        if (urlValida(url)) return { url, clave: k };
+      }
+    }
+  }
+
+  return null;
+}
+
+// Arma el aviso: primero los campos reconocidos, luego el resto de lo que venga.
+// Devuelve { html, boton } — boton es el reply_markup para contestar en la plataforma.
 export function construirAviso(datos, titulo) {
   const plano = aplanar(datos);
   const usadas = new Set();
   const lineas = [];
 
   for (const { etiqueta, claves } of CAMPOS) {
-    const encontrada = Object.keys(plano).find((k) => claves.includes(norm(k.split('.').pop())));
+    const encontrada = Object.keys(plano).find((k) => claves.includes(hoja(k)));
     if (encontrada) {
       usadas.add(encontrada);
       lineas.push(`<b>${etiqueta}:</b> ${esc(plano[encontrada])}`);
     }
   }
+
+  // El enlace va en el boton, no repetido como texto crudo
+  const enlace = enlaceChat(plano);
+  if (enlace) usadas.add(enlace.clave);
 
   const extras = Object.keys(plano).filter((k) => !usadas.has(k));
   if (extras.length) {
@@ -52,8 +114,13 @@ export function construirAviso(datos, titulo) {
   const encabezado = `🔔 <b>${esc(titulo || process.env.NOTIFY_TITLE || 'Aviso para asesor')}</b>`;
   const cuerpo = lineas.length ? lineas.join('\n') : '<i>(sin datos en el cuerpo de la peticion)</i>';
   const hora = new Date().toLocaleString('es-MX', { timeZone: process.env.TZ || 'America/Mexico_City' });
+  const html = `${encabezado}\n\n${cuerpo}\n\n🕒 <i>${esc(hora)}</i>`;
 
-  return `${encabezado}\n\n${cuerpo}\n\n🕒 <i>${esc(hora)}</i>`;
+  const boton = enlace
+    ? { inline_keyboard: [[{ text: process.env.CHAT_BUTTON_TEXT || '💬 Contestar', url: enlace.url }]] }
+    : undefined;
+
+  return { html, boton };
 }
 
 // Secreto opcional: por cabecera x-webhook-secret, Authorization: Bearer, o ?token=
@@ -73,10 +140,24 @@ async function manejar(req, res) {
   const datos = req.method === 'GET' ? req.query : { ...req.query, ...(req.body || {}) };
   const { token, ...limpio } = datos; // el token de auth no se publica en el chat
 
+  const { html, boton } = construirAviso(limpio, limpio.titulo || limpio.title);
+
   try {
-    await sendMessage(construirAviso(limpio, limpio.titulo || limpio.title));
-    res.json({ ok: true, enviado: true });
+    await sendMessage(html, boton ? { reply_markup: boton } : {});
+    res.json({ ok: true, enviado: true, conBoton: Boolean(boton) });
   } catch (err) {
+    // Si Telegram rechaza la URL del boton, el aviso importa mas que el enlace:
+    // se reenvia sin boton y con el enlace como texto, para no perder el mensaje.
+    if (boton && /BUTTON_URL_INVALID|button/i.test(err.message)) {
+      const url = boton.inline_keyboard[0][0].url;
+      try {
+        await sendMessage(`${html}\n\n🔗 ${esc(url)}`);
+        console.error('Boton rechazado por Telegram, enviado como texto:', err.message);
+        return res.json({ ok: true, enviado: true, conBoton: false, aviso: 'boton invalido' });
+      } catch (err2) {
+        err = err2;
+      }
+    }
     console.error('No se pudo avisar por Telegram:', err.message);
     res.status(502).json({ ok: false, error: err.message });
   }

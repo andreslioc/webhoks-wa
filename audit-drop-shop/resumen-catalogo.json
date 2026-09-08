@@ -1,0 +1,42 @@
+{
+  "publicProducts": 63,
+  "sitemapProductUrls": 63,
+  "available": 31,
+  "outOfStock": 32,
+  "zeroPrice": 4,
+  "exactDuplicateRows": 2,
+  "missingImages": 0,
+  "oneImage": 0,
+  "missingAltImages": 343,
+  "productsInternalAlt": 0,
+  "missingMetaDescription": 0,
+  "noProductSchema": 0,
+  "noAvailabilitySchema": 0,
+  "missingSku": 0,
+  "missingBarcode": 63,
+  "claimSafe": 52,
+  "claimReview": 7,
+  "claimHighRisk": 2,
+  "claimRemoveRewrite": 2,
+  "otcSensitive": [
+    "gel-de-tratamiento-para-el-acne-differin-0-1-de-adapaleno-x15g",
+    "lumify-redad-alivio-gotas-de-ojos-0-08-onzas-2-5ml"
+  ],
+  "weirdCollections": [
+    "https://drop-shop-g7.myshopify.com/collections/ofertas",
+    "https://drop-shop-g7.myshopify.com/collections/pepas",
+    "https://drop-shop-g7.myshopify.com/collections/comida-para-animales",
+    "https://drop-shop-g7.myshopify.com/collections/asset-pack-12758679554-example-products"
+  ],
+  "frontpageObservation": "1 producto visible y agotado",
+  "duplicates": [
+    {
+      "handle": "cepillo-dental-electrico-phillips-sonicare-4101",
+      "title": "Cepillo dental Electrico Phillips Sonicare 4100"
+    },
+    {
+      "handle": "cepillo-dental-electrico-phillips-sonicare-4100",
+      "title": "Cepillo dental Electrico Phillips Sonicare 4100"
+    }
+  ]
+}

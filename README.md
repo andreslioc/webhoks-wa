@@ -65,9 +65,31 @@ Mensaje: Quiere hablar con un asesor
 
 Cualquier otro campo que mandes se publica igualmente debajo, asi que **no se pierde nada** aunque tu plataforma use otros nombres. Manda `titulo` (o `title`) para cambiar el encabezado de ese aviso concreto.
 
+**Boton para contestar**: si el aviso trae el enlace de la conversacion, en Telegram aparece un boton que lo abre directo. Hay dos formas de darselo:
+
+1. **URL ya armada** — manda el enlace en cualquiera de estos campos: `link`, `url`, `enlace`, `chat_url`, `url_chat`, `conversation_url`, `permalink`, `deeplink`. No necesitas configurar nada.
+2. **Solo el id** — pon la plantilla en `CHAT_URL_TEMPLATE` con `{id}` donde va el identificador:
+
+   ```
+   CHAT_URL_TEMPLATE=https://app.tuplataforma.com/conversations/{id}
+   ```
+
+   El id se toma de `conversation_id`, `conversacion_id`, `id_conversacion`, `chat_id`, `ticket`, `ticket_id`, `session_id`, o de un `id` anidado bajo `conversation`/`conversacion`/`chat`/`ticket`/`session` (p.ej. `{"conversacion":{"id":999}}`).
+
+El texto del boton se cambia con `CHAT_BUTTON_TEXT` (por defecto `💬 Contestar`). Si no hay enlace ni id, el aviso se envia igual, solo sin boton. Un `id` suelto en la raiz **no** se usa, para no armar URLs con el id del cliente o del mensaje por error.
+
+```bash
+curl -X POST https://tu-dominio/notify \
+  -H 'Content-Type: application/json' \
+  -H 'x-webhook-secret: TU_SECRETO' \
+  -d '{"nombre":"Ana Perez","mensaje":"Quiere asesor","conversation_id":"a1b2c3"}'
+```
+
+La respuesta incluye `conBoton` para que sepas si el enlace se pudo armar: `{"ok":true,"enviado":true,"conBoton":true}`.
+
 **Seguridad**: si defines `NOTIFY_SECRET`, la llamada debe traerlo en la cabecera `x-webhook-secret`, en `Authorization: Bearer ...`, o como `?token=`. Sin esa variable el endpoint queda abierto — ponla si la URL es publica.
 
-**Respuestas**: `200 {"ok":true,"enviado":true}` si llego a Telegram, `401` si el secreto no coincide, `502` si Telegram rechazo el envio (el motivo viene en el cuerpo y en los logs).
+**Respuestas**: `200 {"ok":true,"enviado":true,"conBoton":true|false}` si llego a Telegram, `401` si el secreto no coincide, `502` si Telegram rechazo el envio (el motivo viene en el cuerpo y en los logs).
 
 ---
 
