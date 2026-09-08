@@ -113,7 +113,9 @@ export function construirAviso(datos, titulo) {
 
   const encabezado = `🔔 <b>${esc(titulo || process.env.NOTIFY_TITLE || 'Aviso para asesor')}</b>`;
   const cuerpo = lineas.length ? lineas.join('\n') : '<i>(sin datos en el cuerpo de la peticion)</i>';
-  const hora = new Date().toLocaleString('es-MX', { timeZone: process.env.TZ || 'America/Mexico_City' });
+  // NOTIFY_TZ y no TZ: Vercel reserva TZ y rechaza definirla como variable de entorno
+  const zona = process.env.NOTIFY_TZ || process.env.TZ || 'America/Mexico_City';
+  const hora = new Date().toLocaleString('es-MX', { timeZone: zona });
   const html = `${encabezado}\n\n${cuerpo}\n\n🕒 <i>${esc(hora)}</i>`;
 
   const boton = enlace

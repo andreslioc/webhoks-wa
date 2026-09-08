@@ -48,14 +48,15 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(401);
   }
 
-  // Respondemos ya: Meta reintenta si tardamos, el reenvio va en segundo plano
-  res.sendStatus(200);
-
+  // Se espera el reenvio antes de responder: en serverless (Vercel) la funcion
+  // se congela al responder, asi que un reenvio "en segundo plano" nunca terminaria.
+  // Meta reintenta si tardamos, que es preferible a perder el mensaje.
   try {
     await procesar(req.body);
   } catch (err) {
     console.error('Error procesando el evento:', err.message);
   }
+  res.sendStatus(200);
 });
 
 async function procesar(body) {
@@ -107,4 +108,10 @@ async function reenviar(msg, contact, metadata) {
   await sendMessage(`${cabecera}\n\n${cuerpo}`);
 }
 
-app.listen(PORT, () => console.log(`Webhook escuchando en http://localhost:${PORT}/webhook`));
+// En Vercel la app se exporta y la plataforma la invoca (ver api/index.js).
+// En local se levanta el servidor normal.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => console.log(`Webhook escuchando en http://localhost:${PORT}/webhook`));
+}
+
+export default app;

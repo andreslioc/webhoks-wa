@@ -87,6 +87,23 @@ curl -X POST https://tu-dominio/notify \
 
 La respuesta incluye `conBoton` para que sepas si el enlace se pudo armar: `{"ok":true,"enviado":true,"conBoton":true}`.
 
+### Dispararlo a mano
+
+Para probar sin la plataforma, con el servidor corriendo (`npm start`) en otra terminal:
+
+```bash
+npm run avisar -- --nombre "Ana Perez" --telefono "+52 811 222 3333" \
+  --mensaje "Quiere asesor" --id a1b2c3
+```
+
+`--id` es atajo de `conversation_id`. Cualquier otro `--clave valor` se manda tal cual en el JSON, asi que sirve para ensayar los nombres de campo que use tu plataforma:
+
+```bash
+npm run avisar -- --nombre Ana --conversation_url "https://app.tuplataforma.com/chat/9"
+```
+
+Toma `NOTIFY_SECRET` del `.env` y avisa si el aviso salio sin boton. Con `NOTIFY_URL` apuntas a un servidor remoto en vez de `localhost`.
+
 **Seguridad**: si defines `NOTIFY_SECRET`, la llamada debe traerlo en la cabecera `x-webhook-secret`, en `Authorization: Bearer ...`, o como `?token=`. Sin esa variable el endpoint queda abierto — ponla si la URL es publica.
 
 **Respuestas**: `200 {"ok":true,"enviado":true,"conBoton":true|false}` si llego a Telegram, `401` si el secreto no coincide, `502` si Telegram rechazo el envio (el motivo viene en el cuerpo y en los logs).
