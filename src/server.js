@@ -6,6 +6,7 @@ import { downloadMedia, guessFilename } from './whatsapp.js';
 import { header, describe, describeStatus, MEDIA_KIND } from './formatter.js';
 import { notify } from './notify.js';
 import { gemini } from './gemini.js';
+import { gastos } from './gastos.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,6 +31,9 @@ app.use(notify);
 // Puente Zernio -> Gemini: genera una respuesta y conserva el id de la
 // interaccion para que el siguiente turno mantenga el contexto.
 app.use(gemini);
+
+// Panel del consumo estimado de Gemini.
+app.use(gastos);
 
 function firmaValida(req) {
   const secret = process.env.WHATSAPP_APP_SECRET;

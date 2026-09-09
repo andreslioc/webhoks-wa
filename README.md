@@ -5,6 +5,7 @@ Tres webhooks en un mismo servidor:
 1. **`/notify`** — webhook **generico**: lo pegas en tu plataforma (Zenvia, Make, n8n, un formulario, tu chatbot…) y cada llamada publica un aviso en el chat de Telegram del asesor.
 2. **`/webhook`** — webhook de **WhatsApp Cloud API** (Meta): reenvia los mensajes entrantes de WhatsApp al mismo chat.
 3. **`/gemini`** — recibe un turno desde un Workflow de Zernio, consulta Gemini y devuelve la respuesta junto con el id necesario para conservar el contexto.
+4. **`/gastos`** — panel del uso de Gemini, con actualización automática y manual.
 
 Si solo necesitas avisar al asesor, te basta con `/notify` y las variables de Telegram.
 
@@ -159,6 +160,26 @@ La respuesta del endpoint tiene esta forma:
 
 En el siguiente nodo **Send message** usa `{{leadResponse.body.respuesta}}` y regresalo a **Wait for reply**. La salida `timeout` de ese nodo puede ir a **End**.
 
+### Ver consumo estimado
+
+Cada respuesta exitosa acumula solicitudes y tokens. Abre el panel con el mismo
+secreto del webhook (o define uno distinto en `GASTOS_DASHBOARD_SECRET`):
+
+```text
+https://tu-dominio/gastos?token=TU_SECRETO
+```
+
+El panel se actualiza cada 10 segundos y tambien tiene un boton de actualizacion.
+El costo mostrado es una estimacion calculada con las tarifas configuradas en
+`GEMINI_INPUT_USD_PER_MILLION` y `GEMINI_OUTPUT_USD_PER_MILLION`. No recupera el
+consumo anterior a la instalacion del contador y el cobro real puede ser cero si
+el proyecto esta dentro del nivel gratuito de Gemini.
+
+En Vercel, conecta una base Upstash Redis y expone
+`UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` para que el acumulado no se
+reinicie ni se divida entre instancias. Sin Redis, el panel funciona como prueba,
+pero el contador vive solamente en la memoria temporal de cada instancia.
+
 ---
 
 ## 3. WhatsApp Cloud API — `/webhook`
@@ -207,6 +228,8 @@ Si falta `WHATSAPP_TOKEN` o falla la descarga de un archivo, se envia igualmente
 |---|---|---|
 | `POST` / `GET` | `/notify` | aviso al asesor desde tu plataforma |
 | `POST` | `/gemini` | respuesta de Gemini para el Workflow de Zernio |
+| `GET` | `/gastos` | panel HTML de consumo estimado de Gemini |
+| `GET` | `/gastos.json` | datos del contador para el panel |
 | `GET` | `/webhook` | verificacion del webhook de Meta (`hub.challenge`) |
 | `POST` | `/webhook` | eventos de WhatsApp; valida `X-Hub-Signature-256` si hay `WHATSAPP_APP_SECRET` |
 | `GET` | `/health` | comprobacion de vida |

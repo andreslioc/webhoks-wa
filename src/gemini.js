@@ -1,4 +1,5 @@
 import express from 'express';
+import { registrarUsoGemini } from './usage.js';
 
 export const gemini = express.Router();
 
@@ -99,6 +100,8 @@ export async function consultarGemini({ mensaje, previousInteractionId }, fetchI
 
   const texto = extraerTexto(datos);
   if (!texto) throw new Error('Gemini no devolvio texto');
+
+  await registrarUsoGemini(datos.usage);
 
   return { respuesta: texto, interactionId: datos.id };
 }
