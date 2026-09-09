@@ -31,6 +31,11 @@ export function leerEntrada(datos = {}) {
     variables.response,
     datos.lastMessage,
     variables.lastMessage,
+    // Zernio manda estos tres; lastMessage no siempre viene
+    datos.inboundText,
+    variables.inboundText,
+    datos.triggerText,
+    variables.triggerText,
   );
 
   const previa = primerTexto(
