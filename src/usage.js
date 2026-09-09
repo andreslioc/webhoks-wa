@@ -7,7 +7,20 @@ const memoria = {
   tokensPensamiento: 0,
   tokensTotales: 0,
   actualizadoEn: null,
+  dias: new Map(),
 };
+
+function diaActual() {
+  const zona = process.env.GEMINI_USAGE_TZ || 'America/Bogota';
+  const partes = new Intl.DateTimeFormat('en', {
+    timeZone: zona,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const valor = (tipo) => partes.find((parte) => parte.type === tipo)?.value;
+  return `${valor('year')}-${valor('month')}-${valor('day')}`;
+}
 
 function numero(valor) {
   const n = Number(valor);
@@ -64,7 +77,7 @@ function completar(datos, persistencia) {
   const costoEntradaUsd = tokensEntrada * tarifa.entrada / 1_000_000;
   const costoSalidaUsd = tokensSalida * tarifa.salida / 1_000_000;
 
-  return {
+  const resultado = {
     solicitudes: numero(datos.solicitudes),
     tokensEntrada,
     tokensSalida,
@@ -78,6 +91,79 @@ function completar(datos, persistencia) {
     persistencia,
     actualizadoEn: datos.actualizadoEn || null,
   };
+  return resultado;
+}
+
+function costoDe(tokensEntrada, tokensSalida, tarifa) {
+  return numero(tokensEntrada) * tarifa.entrada / 1_000_000
+    + numero(tokensSalida) * tarifa.salida / 1_000_000;
+}
+
+function sumar(destino, origen) {
+  destino.solicitudes += numero(origen.solicitudes);
+  destino.tokensEntrada += numero(origen.tokensEntrada);
+  destino.tokensSalida += numero(origen.tokensSalida);
+  destino.tokensPensamiento += numero(origen.tokensPensamiento);
+  destino.tokensTotales += numero(origen.tokensTotales);
+}
+
+function nuevoPeriodo(campos) {
+  return {
+    ...campos,
+    solicitudes: 0,
+    tokensEntrada: 0,
+    tokensSalida: 0,
+    tokensPensamiento: 0,
+    tokensTotales: 0,
+  };
+}
+
+function periodos(datosPorDia, modelo) {
+  const tarifa = precios(modelo);
+  const dias = [];
+  const semanasMap = new Map();
+  const mesesMap = new Map();
+
+  for (const fecha of [...datosPorDia.keys()].sort()) {
+    const valores = datosPorDia.get(fecha);
+    const mes = fecha.slice(0, 7);
+    const numeroSemana = Math.floor((Number(fecha.slice(8, 10)) - 1) / 7) + 1;
+    const claveSemana = `${mes}-S${numeroSemana}`;
+    const dia = { fecha, ...nuevoPeriodo({}) };
+    sumar(dia, valores);
+    dia.costoEstimadoUsd = costoDe(dia.tokensEntrada, dia.tokensSalida, tarifa);
+    dias.push(dia);
+
+    if (!semanasMap.has(claveSemana)) {
+      semanasMap.set(claveSemana, nuevoPeriodo({ clave: claveSemana, mes, semana: numeroSemana }));
+    }
+    sumar(semanasMap.get(claveSemana), valores);
+
+    if (!mesesMap.has(mes)) mesesMap.set(mes, nuevoPeriodo({ mes }));
+    sumar(mesesMap.get(mes), valores);
+  }
+
+  const conCosto = (periodo) => ({
+    ...periodo,
+    costoEstimadoUsd: costoDe(periodo.tokensEntrada, periodo.tokensSalida, tarifa),
+  });
+
+  return {
+    dias,
+    semanas: [...semanasMap.values()].map(conCosto),
+    meses: [...mesesMap.values()].map(conCosto),
+  };
+}
+
+function mapaDesdeHash(plano) {
+  const dias = new Map();
+  for (let i = 0; i < (plano || []).length; i += 2) {
+    const [fecha, campo] = String(plano[i]).split(':');
+    if (!fecha || !campo) continue;
+    if (!dias.has(fecha)) dias.set(fecha, nuevoPeriodo({}));
+    dias.get(fecha)[campo] = numero(plano[i + 1]);
+  }
+  return dias;
 }
 
 export async function registrarUsoGemini(usage = {}) {
@@ -89,24 +175,29 @@ export async function registrarUsoGemini(usage = {}) {
     tokensTotales: numero(usage.total_tokens),
   };
   const actualizadoEn = new Date().toISOString();
+  const fecha = diaActual();
 
   for (const [campo, valor] of Object.entries(incremento)) memoria[campo] += valor;
   memoria.actualizadoEn = actualizadoEn;
+  if (!memoria.dias.has(fecha)) memoria.dias.set(fecha, nuevoPeriodo({}));
+  sumar(memoria.dias.get(fecha), incremento);
 
   if (!redisConfig()) return;
 
   try {
     await redis([
       'EVAL',
-      "redis.call('HINCRBY', KEYS[1], 'solicitudes', ARGV[1]); redis.call('HINCRBY', KEYS[1], 'tokensEntrada', ARGV[2]); redis.call('HINCRBY', KEYS[1], 'tokensSalida', ARGV[3]); redis.call('HINCRBY', KEYS[1], 'tokensPensamiento', ARGV[4]); redis.call('HINCRBY', KEYS[1], 'tokensTotales', ARGV[5]); redis.call('HSET', KEYS[1], 'actualizadoEn', ARGV[6]); return 1",
-      '1',
+      "local f={'solicitudes','tokensEntrada','tokensSalida','tokensPensamiento','tokensTotales'}; for i=1,5 do redis.call('HINCRBY',KEYS[1],f[i],ARGV[i]); redis.call('HINCRBY',KEYS[2],ARGV[7]..':'..f[i],ARGV[i]); end; redis.call('HSET',KEYS[1],'actualizadoEn',ARGV[6]); return 1",
+      '2',
       USAGE_KEY,
+      `${USAGE_KEY}:daily`,
       String(incremento.solicitudes),
       String(incremento.tokensEntrada),
       String(incremento.tokensSalida),
       String(incremento.tokensPensamiento),
       String(incremento.tokensTotales),
       actualizadoEn,
+      fecha,
     ]);
   } catch (error) {
     console.error('No se pudo persistir el uso de Gemini:', error.message);
@@ -114,15 +205,25 @@ export async function registrarUsoGemini(usage = {}) {
 }
 
 export async function obtenerUsoGemini() {
-  if (!redisConfig()) return completar(memoria, 'memoria temporal');
+  const modelo = process.env.GEMINI_MODEL || process.env.AI_MODEL_DEFAULT || 'gemini-3.1-flash-lite';
+  if (!redisConfig()) {
+    return { ...completar(memoria, 'memoria temporal'), ...periodos(memoria.dias, modelo) };
+  }
 
   try {
     const plano = await redis(['HGETALL', USAGE_KEY]);
+    const planoDias = await redis(['HGETALL', `${USAGE_KEY}:daily`]);
     const datos = {};
     for (let i = 0; i < (plano || []).length; i += 2) datos[plano[i]] = plano[i + 1];
-    return completar(datos, 'Upstash Redis');
+    return {
+      ...completar(datos, 'Upstash Redis'),
+      ...periodos(mapaDesdeHash(planoDias), modelo),
+    };
   } catch (error) {
     console.error('No se pudo leer el uso persistente de Gemini:', error.message);
-    return completar(memoria, 'memoria temporal (Redis no disponible)');
+    return {
+      ...completar(memoria, 'memoria temporal (Redis no disponible)'),
+      ...periodos(memoria.dias, modelo),
+    };
   }
 }

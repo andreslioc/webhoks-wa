@@ -169,7 +169,8 @@ secreto del webhook (o define uno distinto en `GASTOS_DASHBOARD_SECRET`):
 https://tu-dominio/gastos?token=TU_SECRETO
 ```
 
-El panel se actualiza cada 10 segundos y tambien tiene un boton de actualizacion.
+El panel se actualiza cada 10 segundos, tambien tiene un boton de actualizacion
+y agrupa el consumo por semanas (dias 1-7, 8-14, etc.) y por mes.
 El costo mostrado es una estimacion calculada con las tarifas configuradas en
 `GEMINI_INPUT_USD_PER_MILLION` y `GEMINI_OUTPUT_USD_PER_MILLION`. No recupera el
 consumo anterior a la instalacion del contador y el cobro real puede ser cero si
