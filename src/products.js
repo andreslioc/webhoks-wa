@@ -5,7 +5,7 @@ const STOPWORDS = new Set([
   'a', 'al', 'algo', 'como', 'con', 'cual', 'cuanto', 'de', 'del', 'el', 'en',
   'es', 'esta', 'este', 'hola', 'la', 'las', 'lo', 'los', 'me', 'para', 'por',
   'precio', 'producto', 'que', 'quiero', 'se', 'sirve', 'su', 'tiene', 'un', 'una',
-  'usar', 'vale', 'y',
+  'usar', 'vale', 'y', 'cuales', 'manejan', 'ofrecen', 'opciones', 'productos',
 ]);
 
 let cacheCatalogo = { venceEn: 0, filas: [] };
@@ -48,7 +48,12 @@ export function normalizarBusqueda(valor) {
 function tokensUtiles(valor) {
   return normalizarBusqueda(valor)
     .split(' ')
-    .filter((token) => token.length >= 2 && !STOPWORDS.has(token));
+    .map((token) => {
+      if (STOPWORDS.has(token)) return '';
+      const singular = token.length >= 5 && token.endsWith('s') ? token.slice(0, -1) : token;
+      return STOPWORDS.has(singular) ? '' : singular;
+    })
+    .filter((token) => token.length >= 2);
 }
 
 function similitudToken(a, b) {
@@ -217,10 +222,29 @@ export function respuestaListaProductos(productos, { adicionales = false } = {})
     const detalle = producto.presentation || producto.format || producto.brand;
     return `• ${producto.name}${detalle ? `: ${detalle}` : ''}.`;
   });
+  const todosRestringidos = productos.length > 0 && productos.every((producto) => {
+    const full = producto.full_answer || {};
+    const control = normalizarBusqueda([
+      producto.advisor_summary,
+      full.what_for,
+      full.commercial,
+      full.warning,
+      ...(Array.isArray(producto.live_ready) ? producto.live_ready : []),
+    ].filter(Boolean).join(' '));
+    return /no se (vende|ofrece)|venta (esta )?prohibida|venta y consumo (estan )?prohibidos|comercializacion.*ilegal|alerta sanitaria/.test(control);
+  });
+  const alerta = productos
+    .flatMap((producto) => Array.isArray(producto.claims_allowed) ? producto.claims_allowed : [])
+    .find((texto) => /alerta sanitaria/i.test(String(texto)));
+  const detalleAlerta = alerta ? String(alerta).replace(/^producto con\s+/i, '') : '';
   return [
-    adicionales ? 'Claro, también tenemos estas opciones relacionadas:' : 'Claro, manejamos estas opciones:',
+    todosRestringidos
+      ? 'En nuestra base aparecen estas referencias:'
+      : (adicionales ? 'Claro, también tenemos estas opciones relacionadas:' : 'Claro, manejamos estas opciones:'),
     ...lineas,
-    '¿Cuál deseas conocer mejor?',
+    todosRestringidos
+      ? `Sin embargo, sus fichas indican que no están disponibles para venta en Colombia${detalleAlerta ? ` debido a la ${detalleAlerta}` : ''}.`
+      : '¿Cuál deseas conocer mejor?',
   ].join('\n');
 }
 

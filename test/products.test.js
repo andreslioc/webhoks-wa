@@ -5,6 +5,7 @@ import {
   detectarTema,
   detectarNecesidad,
   fichaApta,
+  puntuarProducto,
   seleccionarProducto,
   seleccionarPorNecesidad,
   respuestaListaProductos,
@@ -140,4 +141,33 @@ test('presenta una lista de productos sin enviar al asesor', () => {
   assert.match(respuesta, /Thermogenic Fat Burner/);
   assert.match(respuesta, /Nighttime Weight Loss/);
   assert.match(respuesta, /Cuál deseas conocer mejor/);
+});
+
+test('normaliza maxcalms en plural para encontrar todas las referencias', () => {
+  const referencias = [
+    { name: 'Natural Vitality MAXCALM Powder Unflavored', keywords: ['MaxCalm Natural Vitality'] },
+    { name: 'Natural Vitality MaxCalm Magnesium Glycinate', keywords: ['Maxcalm'] },
+  ];
+  const puntajes = referencias.map((producto) => puntuarProducto(producto, '¿Cuáles maxcalms tienes?').score);
+  assert.ok(puntajes.every((puntaje) => puntaje >= 60));
+});
+
+test('lista todas las referencias restringidas sin ofrecerlas para venta', () => {
+  const productos = [
+    {
+      name: 'MAXCALM Unflavored', presentation: '16 oz',
+      claims_allowed: ['Producto con Alerta Sanitaria No. 260-2026 del INVIMA'],
+      full_answer: { commercial: 'No se vende en Colombia.' },
+    },
+    {
+      name: 'MAXCALM Relaxing Drink Mix', presentation: '16 oz',
+      full_answer: { what_for: 'Esta referencia no se ofrece en Colombia.' },
+    },
+  ];
+  const respuesta = respuestaListaProductos(productos);
+  assert.match(respuesta, /En nuestra base aparecen estas referencias/);
+  assert.match(respuesta, /MAXCALM Unflavored/);
+  assert.match(respuesta, /MAXCALM Relaxing Drink Mix/);
+  assert.match(respuesta, /no están disponibles para venta en Colombia/);
+  assert.doesNotMatch(respuesta, /Cuál deseas conocer mejor/);
 });
