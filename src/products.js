@@ -198,6 +198,32 @@ export async function buscarProducto(consulta, fetchImpl = fetch) {
   return { ...seleccion, producto };
 }
 
+export async function buscarProductosCoincidentes(consulta, { excluirIds = [], limite = 5 } = {}, fetchImpl = fetch) {
+  const excluidos = new Set(excluirIds.filter(Boolean));
+  const catalogo = await cargarCatalogo(fetchImpl);
+  const candidatos = catalogo
+    .map((producto) => puntuarProducto(producto, consulta))
+    .filter((item) => !excluidos.has(item.producto.id) && item.score >= 60)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limite);
+  const detalles = await Promise.all(
+    candidatos.map((item) => obtenerProductoPorId(item.producto.id, fetchImpl)),
+  );
+  return detalles.filter((producto) => producto && fichaApta(producto).apta);
+}
+
+export function respuestaListaProductos(productos, { adicionales = false } = {}) {
+  const lineas = productos.map((producto) => {
+    const detalle = producto.presentation || producto.format || producto.brand;
+    return `• ${producto.name}${detalle ? `: ${detalle}` : ''}.`;
+  });
+  return [
+    adicionales ? 'Claro, también tenemos estas opciones relacionadas:' : 'Claro, manejamos estas opciones:',
+    ...lineas,
+    '¿Cuál deseas conocer mejor?',
+  ].join('\n');
+}
+
 const INTENCIONES = [
   {
     id: 'control_peso',

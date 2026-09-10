@@ -7,6 +7,7 @@ import {
   fichaApta,
   seleccionarProducto,
   seleccionarPorNecesidad,
+  respuestaListaProductos,
 } from '../src/products.js';
 import { indiceOpcion } from '../src/product-memory.js';
 
@@ -130,4 +131,13 @@ test('interpreta la seleccion ordinal de una lista recordada', () => {
   assert.equal(indiceOpcion('Me interesa el segundo'), 1);
   assert.equal(indiceOpcion('La opción 1'), 0);
   assert.equal(indiceOpcion('No sé cuál'), -1);
+  assert.equal(indiceOpcion('El cuarto'), 3);
+});
+
+test('presenta una lista de productos sin enviar al asesor', () => {
+  const respuesta = respuestaListaProductos([catalogo[3], catalogo[4]]);
+  assert.match(respuesta, /Claro, manejamos estas opciones/);
+  assert.match(respuesta, /Thermogenic Fat Burner/);
+  assert.match(respuesta, /Nighttime Weight Loss/);
+  assert.match(respuesta, /Cuál deseas conocer mejor/);
 });

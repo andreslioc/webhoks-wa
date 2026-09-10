@@ -4,6 +4,7 @@ import { agruparMensajesZernio, leerContextoZernio } from './zernio.js';
 import { obtenerPromptSistema } from './prompt.js';
 import {
   buscarProducto,
+  buscarProductosCoincidentes,
   buscarProductosPorNecesidad,
   construirContextoProducto,
   detectarTema,
@@ -11,6 +12,7 @@ import {
   normalizarBusqueda,
   obtenerProductoPorId,
   respuestaProductosPorNecesidad,
+  respuestaListaProductos,
 } from './products.js';
 import {
   indiceOpcion,
@@ -208,9 +210,9 @@ function reglaLocal(mensaje, semilla) {
       accion: 'responder',
       motivo: 'saludo',
       respuesta: elegirVariante([
-        '¡Hola! Soy Maryan 😊 ¿En qué puedo ayudarte?',
-        '¡Hola! Qué gusto saludarte 😊 ¿En qué puedo ayudarte hoy?',
-        '¡Hola! Soy Maryan. Cuéntame, ¿cómo puedo ayudarte?',
+        '¡Hola! Soy Maryan, tu asesora virtual 😊 ¿En qué puedo ayudarte?',
+        '¡Hola! Soy Maryan, tu asesora virtual. Qué gusto saludarte 😊 ¿En qué puedo ayudarte hoy?',
+        '¡Hola! Soy Maryan, tu asesora virtual. Cuéntame, ¿cómo puedo ayudarte?',
       ], semilla),
     };
   }
@@ -232,6 +234,17 @@ function reglaLocal(mensaje, semilla) {
 function esSeguimiento(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   return /^(y\b|pero\b|entonces\b|ese\b|esa\b|este\b|esta\b|eso\b|como lo\b|como la\b|cuanto cuesta\b|para que sirve\b)/.test(texto);
+}
+
+function esConsultaAlternativas(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  return /\b(otro|otros|otra|otras|mas opciones|alguno mas|alguna mas)\b/.test(texto);
+}
+
+function pideListaProductos(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  return /\b(productos|opciones|cuales)\b/.test(texto)
+    || /\b(que|cuales)\b.*\b(manejan|venden|tienen|ofrecen)\b/.test(texto);
 }
 
 function precioCop(valor) {
@@ -290,6 +303,64 @@ gemini.post('/gemini', async (req, res) => {
         mensajesAgrupados: agrupacion.mensajesAgrupados,
         agrupacionEstado: agrupacion.motivo || 'activa',
       });
+    }
+
+    if (esConsultaAlternativas(mensaje)) {
+      const recordado = await leerProductoRecordado(entrada);
+      if (recordado?.id) {
+        const consultaBase = recordado.consulta || recordado.name;
+        const alternativas = await buscarProductosCoincidentes(
+          consultaBase,
+          { excluirIds: [recordado.id] },
+        );
+        if (alternativas.length) {
+          await recordarOpciones({ ...entrada, productos: alternativas });
+          return res.json({
+            ok: true,
+            accion: 'responder',
+            respuesta: respuestaListaProductos(alternativas, { adicionales: true }),
+            motivo: 'productos_relacionados',
+            usoGemini: false,
+            notificarAsesor: false,
+            candidatos: alternativas.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+          });
+        }
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          respuesta: 'Por el momento no encuentro otra opción relacionada en nuestro catálogo. Si quieres, dime qué característica buscas y reviso qué alternativa puede servirte.',
+          motivo: 'sin_mas_productos_relacionados',
+          usoGemini: false,
+          notificarAsesor: false,
+        });
+      }
+      const opcionesMostradas = await leerOpcionesRecordadas(entrada);
+      if (opcionesMostradas.length) {
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          respuesta: `Por el momento esas son las opciones relacionadas que encuentro: ${opcionesMostradas.map((producto) => producto.name).join(', ')}. ¿Cuál deseas conocer mejor?`,
+          motivo: 'opciones_catalogo_ya_mostradas',
+          usoGemini: false,
+          notificarAsesor: false,
+        });
+      }
+    }
+
+    if (pideListaProductos(mensaje)) {
+      const coincidencias = await buscarProductosCoincidentes(mensaje);
+      if (coincidencias.length > 1) {
+        await recordarOpciones({ ...entrada, productos: coincidencias });
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          respuesta: respuestaListaProductos(coincidencias),
+          motivo: 'lista_productos_coincidentes',
+          usoGemini: false,
+          notificarAsesor: false,
+          candidatos: coincidencias.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+        });
+      }
     }
 
     let busqueda = await buscarProducto(mensaje);
@@ -355,7 +426,7 @@ gemini.post('/gemini', async (req, res) => {
       }));
     }
 
-    await recordarProducto({ ...entrada, producto: busqueda.producto });
+    await recordarProducto({ ...entrada, producto: busqueda.producto, consulta: mensaje });
     const temas = detectarTema(mensaje);
     if (temas.length === 1 && temas[0] === 'precio') {
       if (!Number.isFinite(Number(busqueda.producto.price_cop))) {
