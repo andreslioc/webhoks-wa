@@ -122,7 +122,7 @@ Configura estas variables en Vercel:
 GEMINI_API_KEY=tu_api_key_de_Google_AI_Studio
 GEMINI_WEBHOOK_SECRET=un_secreto_largo
 AI_MODEL_DEFAULT=gemini-3.1-flash-lite
-GEMINI_SYSTEM_PROMPT=Responde como asesor de Drop Shop, de forma breve y clara.
+GEMINI_SYSTEM_PROMPT=
 ```
 
 En el nodo **Webhook** de Zernio usa:
@@ -153,12 +153,86 @@ La respuesta del endpoint tiene esta forma:
 ```json
 {
   "ok": true,
+  "accion": "responder",
   "respuesta": "Claro, ¿que producto estas buscando?",
-  "interactionId": "v1_..."
+  "interactionId": "v1_...",
+  "usoGemini": true,
+  "notificarAsesor": false
 }
 ```
 
 En el siguiente nodo **Send message** usa `{{leadResponse.body.respuesta}}` y regresalo a **Wait for reply**. La salida `timeout` de ese nodo puede ir a **End**.
+
+La identidad base vive en `prompts/asesor-comercial.md`. Se llama Maryan y es
+una asesora comercial que puede atender consultas de Super Store/TikTok y mensajes
+originados por las tarjetas incluidas con los productos. `GEMINI_SYSTEM_PROMPT`
+es opcional y, si se define, agrega instrucciones sin reemplazar esa identidad.
+
+### Agrupar mensajes consecutivos de Zernio
+
+Como el `Wait for reply` de Zernio no permite una espera menor a un minuto, el
+webhook espera hasta que transcurran 15 segundos desde el ultimo mensaje y lee
+los mensajes recientes directamente del inbox. Si durante la espera llega otro,
+reinicia la ventana, con un tope total predeterminado de 45 segundos. Configura
+`ZERNIO_API_KEY` con permiso de mensajes y envia:
+
+```json
+{
+  "mensaje": "{{Response}}",
+  "conversationId": "{{conversationId}}",
+  "accountId": "{{accountId}}",
+  "messageId": "{{messageId}}"
+}
+```
+
+`messageId` es opcional, pero mejora la precision del punto desde el que se
+agrupa. La respuesta incluye `agrupado`, `mensajesAgrupados` y
+`agrupacionEstado`. Si falta la API key o los identificadores, el webhook
+conserva el comportamiento anterior, responde solamente al primer mensaje y
+explica el dato faltante en `agrupacionEstado`.
+
+### Buscar productos en Supabase antes de Gemini
+
+El endpoint `/gemini` no entrega el catálogo completo al modelo. Primero carga
+un índice liviano con `id`, nombre, SKU, marca, categoría, presentación y
+palabras clave. Después identifica el producto y consulta solamente su ficha
+completa. El índice se conserva temporalmente en memoria para reducir lecturas.
+
+Configura en Vercel:
+
+```text
+SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+SUPABASE_PRODUCTS_TABLE=products
+PRODUCT_CATALOG_CACHE_MS=300000
+PRODUCT_MEMORY_TTL_SECONDS=86400
+```
+
+La clave de Supabase es exclusiva del servidor. No debe enviarse en el body del
+workflow ni exponerse al navegador. Un producto solo se usa si tiene
+`verified_at`, `advisor_summary` y `full_answer`, y si la ficha no declara que
+es un registro de demostración. Para preguntas de precio se responde desde
+Supabase sin Gemini. Para preguntas explicativas se envían solo los campos del
+tema consultado y Gemini devuelve JSON estructurado.
+
+Si no hay coincidencia segura, la ficha no es apta o la información no alcanza:
+
+```json
+{
+  "ok": true,
+  "accion": "humano",
+  "respuesta": "",
+  "motivo": "producto_no_encontrado",
+  "usoGemini": false,
+  "notificarAsesor": true
+}
+```
+
+En Zernio, esta rama no debe tener `Send message`: llama `/notify`, ejecuta
+`Handoff` y termina. El producto identificado se recuerda por
+`accountId + conversationId` en Upstash, lo que permite resolver seguimientos
+como “¿y cómo se usa?” sin volver a buscarlo en el texto. El avance y la matriz
+de casos están en `PLAN_MARYAN.md`.
 
 ### Ver consumo estimado
 
