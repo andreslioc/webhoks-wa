@@ -234,6 +234,14 @@ En Zernio, esta rama no debe tener `Send message`: llama `/notify`, ejecuta
 como “¿y cómo se usa?” sin volver a buscarlo en el texto. El avance y la matriz
 de casos están en `PLAN_MARYAN.md`.
 
+Las consultas por necesidad también se resuelven antes de Gemini. Por ejemplo,
+“¿qué tiene para bajar de peso?” se relaciona de forma controlada con las frases
+`control de peso`, `quemador de grasa` y `weight loss` presentes en el catálogo.
+El webhook muestra únicamente productos con coincidencia fuerte y guarda esa
+lista durante dos horas, por lo que “el primero” o “el segundo” recuperan la
+ficha elegida. Una coincidencia débil como la palabra `metabolismo` por sí sola
+no basta para recomendar un producto.
+
 ### Ver consumo estimado
 
 Cada respuesta exitosa acumula solicitudes y tokens. Abre el panel con el mismo

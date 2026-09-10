@@ -1,0 +1,14 @@
+Paso,Nodo,Configuracion,Salida,Conectar a,Accion
+1,Trigger,Mensaje entrante,success,Webhook Maryan,Inicia el flujo con el mensaje del cliente
+2,Webhook Maryan,POST /gemini y Save response as leadResponse,success,Condition responder,Evalua la respuesta del webhook
+2,Webhook Maryan,POST /gemini y Save response as leadResponse,error,Webhook aviso,Avisa el fallo y pasa a humano
+3,Condition responder,leadResponse.body.accion equals responder,Si,Send message,Envia la respuesta de Maryan
+3,Condition responder,leadResponse.body.accion equals responder,No,Condition humano,Comprueba si requiere asesor
+4,Send message,leadResponse.body.respuesta,success,Wait for reply,Espera el siguiente mensaje
+5,Wait for reply,Save as Response y timeout 5 min,reply,Webhook Maryan,Procesa el siguiente mensaje
+5,Wait for reply,Save as Response y timeout 5 min,timeout,End,Cierra la ejecucion por inactividad
+6,Condition humano,leadResponse.body.accion equals humano,Si,Webhook aviso,Notifica al asesor
+6,Condition humano,leadResponse.body.accion equals humano,No / silencio,End,No envia ningun mensaje
+7,Webhook aviso,POST /notify y Save response as notifyResponse,success,Handoff,Entrega la conversacion al asesor
+7,Webhook aviso,POST /notify y Save response as notifyResponse,error,Handoff,Entrega aunque falle Telegram
+8,Handoff,Pasar a asesor,success,End,Finaliza la automatizacion

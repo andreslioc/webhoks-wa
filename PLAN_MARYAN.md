@@ -13,6 +13,8 @@ Gemini → Zernio. Debe actualizarse al cambiar una regla o completar una prueba
 - [x] Memoria del producto por `accountId + conversationId` en Upstash Redis.
 - [x] Respuesta estructurada de Gemini (`responder` o `humano`).
 - [x] Producto desconocido produce transferencia silenciosa sin llamar a Gemini.
+- [x] Búsqueda por necesidad para control de peso y selección de opciones sin Gemini.
+- [x] Memoria de opciones durante dos horas para respuestas como “el primero”.
 - [x] Multimedia produce transferencia silenciosa sin llamar a Gemini.
 - [x] Saludo y confirmación de recibido se responden sin Gemini.
 - [ ] Desplegar esta versión en Vercel.
@@ -32,6 +34,8 @@ Gemini → Zernio. Debe actualizarse al cambiar una regla o completar una prueba
 | Producto exacto y pregunta explicativa | Sí | Una ficha compacta y respuesta breve |
 | Nombre con error menor | Solo si se identifica con seguridad | Producto correcto |
 | Varios productos posibles | No | Pedir cuál de las opciones |
+| “¿Qué tiene para bajar de peso?” | No | Mostrar productos vinculados a control de peso |
+| “El primero” después de mostrar opciones | Según la pregunta | Recuperar la opción guardada |
 | Producto inexistente | No | `humano`, respuesta vacía, notificación |
 | Ficha incompleta/no verificada/demo | No | `humano`, respuesta vacía, notificación |
 | Pregunta que excede la ficha | Sí | Gemini devuelve `humano`, respuesta vacía |

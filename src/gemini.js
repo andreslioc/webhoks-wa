@@ -4,13 +4,21 @@ import { agruparMensajesZernio, leerContextoZernio } from './zernio.js';
 import { obtenerPromptSistema } from './prompt.js';
 import {
   buscarProducto,
+  buscarProductosPorNecesidad,
   construirContextoProducto,
   detectarTema,
   fichaApta,
   normalizarBusqueda,
   obtenerProductoPorId,
+  respuestaProductosPorNecesidad,
 } from './products.js';
-import { leerProductoRecordado, recordarProducto } from './product-memory.js';
+import {
+  indiceOpcion,
+  leerOpcionesRecordadas,
+  leerProductoRecordado,
+  recordarOpciones,
+  recordarProducto,
+} from './product-memory.js';
 
 export const gemini = express.Router();
 
@@ -286,6 +294,34 @@ gemini.post('/gemini', async (req, res) => {
 
     let busqueda = await buscarProducto(mensaje);
     let productoRecordado = false;
+    if (busqueda.estado === 'no_encontrado') {
+      const indice = indiceOpcion(mensaje);
+      if (indice >= 0) {
+        const opciones = await leerOpcionesRecordadas(entrada);
+        const elegida = opciones[indice];
+        if (elegida?.id) {
+          const producto = await obtenerProductoPorId(elegida.id);
+          if (producto) busqueda = { estado: 'encontrado', producto, confianza: 'opcion_recordada' };
+        }
+      }
+    }
+
+    if (busqueda.estado === 'no_encontrado') {
+      const necesidad = await buscarProductosPorNecesidad(mensaje);
+      if (necesidad.estado === 'encontrados' && necesidad.productos.length) {
+        await recordarOpciones({ ...entrada, productos: necesidad.productos });
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          respuesta: respuestaProductosPorNecesidad(necesidad.intencion, necesidad.productos),
+          motivo: `busqueda_necesidad_${necesidad.intencion.id}`,
+          usoGemini: false,
+          notificarAsesor: false,
+          candidatos: necesidad.productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+        });
+      }
+    }
+
     if (busqueda.estado === 'no_encontrado' && esSeguimiento(mensaje)) {
       const recordado = await leerProductoRecordado(entrada);
       if (recordado?.id) {
@@ -336,9 +372,12 @@ gemini.post('/gemini', async (req, res) => {
       });
     }
 
+    const preguntaGemini = busqueda.confianza === 'opcion_recordada'
+      ? `El cliente eligió ${busqueda.producto.name} de la lista que se le mostró. Preséntale brevemente qué es y la información comercial verificada disponible.`
+      : mensaje;
     const resultado = await consultarGemini({
       ...entrada,
-      mensaje: mensajeConContexto(mensaje, busqueda.producto),
+      mensaje: mensajeConContexto(preguntaGemini, busqueda.producto),
       respuestaEstructurada: true,
     });
     const humano = resultado.accion === 'humano';

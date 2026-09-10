@@ -1,5 +1,6 @@
 const memoria = new Map();
 const PREFIX = 'webhoks-wa:maryan:product';
+const OPTIONS_PREFIX = 'webhoks-wa:maryan:options';
 
 function redisConfig() {
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
@@ -10,6 +11,11 @@ function redisConfig() {
 function clave(conversationId, accountId) {
   if (!conversationId) return null;
   return `${PREFIX}:${accountId || 'default'}:${conversationId}`;
+}
+
+function claveOpciones(conversationId, accountId) {
+  if (!conversationId) return null;
+  return `${OPTIONS_PREFIX}:${accountId || 'default'}:${conversationId}`;
 }
 
 function ttlSegundos() {
@@ -53,4 +59,36 @@ export async function leerProductoRecordado({ conversationId, accountId }) {
     return null;
   }
   return JSON.parse(guardado.valor);
+}
+
+export async function recordarOpciones({ conversationId, accountId, productos }) {
+  const key = claveOpciones(conversationId, accountId);
+  if (!key || !Array.isArray(productos) || !productos.length) return false;
+  const valor = JSON.stringify(productos.slice(0, 3).map(({ id, name, sku }) => ({ id, name, sku })));
+  memoria.set(key, { valor, venceEn: Date.now() + 2 * 60 * 60 * 1_000 });
+  if (redisConfig()) await redis(['SET', key, valor, 'EX', String(2 * 60 * 60)]);
+  return true;
+}
+
+export async function leerOpcionesRecordadas({ conversationId, accountId }) {
+  const key = claveOpciones(conversationId, accountId);
+  if (!key) return [];
+  if (redisConfig()) {
+    const valor = await redis(['GET', key]);
+    return valor ? JSON.parse(valor) : [];
+  }
+  const guardado = memoria.get(key);
+  if (!guardado || guardado.venceEn <= Date.now()) {
+    memoria.delete(key);
+    return [];
+  }
+  return JSON.parse(guardado.valor);
+}
+
+export function indiceOpcion(mensaje) {
+  const texto = String(mensaje || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/\b(primero|primera|numero 1|opcion 1|el 1)\b/.test(texto)) return 0;
+  if (/\b(segundo|segunda|numero 2|opcion 2|el 2)\b/.test(texto)) return 1;
+  if (/\b(tercero|tercera|numero 3|opcion 3|el 3)\b/.test(texto)) return 2;
+  return -1;
 }

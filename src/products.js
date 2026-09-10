@@ -167,7 +167,7 @@ export async function cargarCatalogo(fetchImpl = fetch) {
   const ahora = Date.now();
   if (cacheCatalogo.venceEn > ahora && cacheCatalogo.filas.length) return cacheCatalogo.filas;
   const filas = await consultarSupabase({
-    select: 'id,name,sku,brand,category,presentation,keywords,verified_at',
+    select: 'id,name,sku,brand,category,presentation,keywords,purpose,verified_at',
     limit: '1000',
   }, fetchImpl);
   const ttl = Number(process.env.PRODUCT_CATALOG_CACHE_MS) || DEFAULT_CACHE_MS;
@@ -196,6 +196,81 @@ export async function buscarProducto(consulta, fetchImpl = fetch) {
   if (seleccion.estado !== 'encontrado') return seleccion;
   const producto = await obtenerProductoPorId(seleccion.producto.id, fetchImpl);
   return { ...seleccion, producto };
+}
+
+const INTENCIONES = [
+  {
+    id: 'control_peso',
+    etiqueta: 'el control de peso',
+    consultas: [
+      'bajar de peso', 'perder peso', 'controlar el peso', 'control de peso',
+      'adelgazar', 'quemar grasa', 'quema grasa', 'reducir peso', 'weight loss',
+    ],
+    senalesFuertes: [
+      'control de peso', 'bajar de peso', 'perder peso', 'weight loss',
+      'fat burner', 'quemador de grasa', 'quemar grasa',
+    ],
+    senalesApoyo: ['control de antojos', 'termogenico', 'metabolismo'],
+  },
+];
+
+export function detectarNecesidad(consulta) {
+  const texto = normalizarBusqueda(consulta);
+  return INTENCIONES.find((intencion) => intencion.consultas.some(
+    (frase) => texto.includes(normalizarBusqueda(frase)),
+  )) || null;
+}
+
+export function seleccionarPorNecesidad(catalogo, consulta) {
+  const intencion = detectarNecesidad(consulta);
+  if (!intencion) return { estado: 'sin_necesidad' };
+  const puntuados = (catalogo || []).map((producto) => {
+    const texto = normalizarBusqueda([
+      producto.name,
+      ...(Array.isArray(producto.keywords) ? producto.keywords : []),
+      producto.purpose,
+    ].filter(Boolean).join(' '));
+    let score = 0;
+    for (const frase of intencion.senalesFuertes) {
+      if (texto.includes(normalizarBusqueda(frase))) score += 100;
+    }
+    for (const frase of intencion.senalesApoyo) {
+      if (texto.includes(normalizarBusqueda(frase))) score += 15;
+    }
+    return { producto, score };
+  }).filter((item) => item.score >= 100).sort((a, b) => b.score - a.score);
+
+  return {
+    estado: puntuados.length ? 'encontrados' : 'no_encontrados',
+    intencion,
+    candidatos: puntuados.slice(0, 3).map((item) => item.producto),
+  };
+}
+
+export async function buscarProductosPorNecesidad(consulta, fetchImpl = fetch) {
+  const catalogo = await cargarCatalogo(fetchImpl);
+  const seleccion = seleccionarPorNecesidad(catalogo, consulta);
+  if (seleccion.estado !== 'encontrados') return seleccion;
+  const detalles = await Promise.all(
+    seleccion.candidatos.map((producto) => obtenerProductoPorId(producto.id, fetchImpl)),
+  );
+  return {
+    ...seleccion,
+    productos: detalles.filter((producto) => producto && fichaApta(producto).apta),
+  };
+}
+
+export function respuestaProductosPorNecesidad(intencion, productos) {
+  const lineas = productos.map((producto) => {
+    const permitidas = Array.isArray(producto.claims_allowed) ? producto.claims_allowed : [];
+    const datos = permitidas.slice(0, 2).join('; ') || producto.presentation || 'Consulta su ficha completa';
+    return `• ${producto.name}: ${datos}.`;
+  });
+  return [
+    `Claro, tenemos estas opciones relacionadas con ${intencion.etiqueta}:`,
+    ...lineas,
+    'Son complementos y no garantizan pérdida de peso. ¿Cuál deseas conocer mejor?',
+  ].join('\n');
 }
 
 export function fichaApta(producto) {

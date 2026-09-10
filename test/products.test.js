@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import {
   construirContextoProducto,
   detectarTema,
+  detectarNecesidad,
   fichaApta,
   seleccionarProducto,
+  seleccionarPorNecesidad,
 } from '../src/products.js';
+import { indiceOpcion } from '../src/product-memory.js';
 
 const catalogo = [
   {
@@ -34,6 +37,36 @@ const catalogo = [
     category: 'Salud',
     presentation: 'Polvo',
     keywords: ['magnesio', 'calm'],
+  },
+  {
+    id: '4',
+    name: 'Thermogenic Fat Burner',
+    sku: 'FIT-1',
+    brand: 'Marca',
+    category: 'Suplementos',
+    presentation: '60 cápsulas',
+    keywords: ['quemador de grasa', 'control de peso', 'metabolismo'],
+    purpose: 'Apoyo diurno para el metabolismo.',
+  },
+  {
+    id: '5',
+    name: 'Nighttime Weight Loss',
+    sku: 'FIT-2',
+    brand: 'Marca',
+    category: 'Suplementos',
+    presentation: '30 cápsulas',
+    keywords: ['nighttime fat burner', 'control de peso'],
+    purpose: 'Complemento nocturno.',
+  },
+  {
+    id: '6',
+    name: 'Multivitamínico general',
+    sku: 'VIT-1',
+    brand: 'Marca',
+    category: 'Suplementos',
+    presentation: '30 cápsulas',
+    keywords: ['metabolismo'],
+    purpose: 'Apoyo nutricional general.',
   },
 ];
 
@@ -84,4 +117,17 @@ test('el contexto de precio no incluye campos extensos de uso', () => {
   assert.equal(contexto.precio_cop, 60000);
   assert.equal(contexto.modo_uso, undefined);
   assert.equal(contexto.resumen_asesor, undefined);
+});
+
+test('reconoce bajar de peso como una busqueda por necesidad', () => {
+  assert.equal(detectarNecesidad('¿Qué tiene para bajar de peso?')?.id, 'control_peso');
+  const resultado = seleccionarPorNecesidad(catalogo, '¿Qué tiene para bajar de peso?');
+  assert.equal(resultado.estado, 'encontrados');
+  assert.deepEqual(resultado.candidatos.map((p) => p.id), ['4', '5']);
+});
+
+test('interpreta la seleccion ordinal de una lista recordada', () => {
+  assert.equal(indiceOpcion('Me interesa el segundo'), 1);
+  assert.equal(indiceOpcion('La opción 1'), 0);
+  assert.equal(indiceOpcion('No sé cuál'), -1);
 });
