@@ -407,6 +407,14 @@ function recortar(valor, maximo = 1_200) {
   return texto.length > maximo ? `${texto.slice(0, maximo)}…` : valor;
 }
 
+function beneficioPrincipal(valor) {
+  if (!Array.isArray(valor) || !valor.length) return recortar(valor, 500);
+  const ordenados = [...valor].sort((a, b) => Number(a?.rank || 999) - Number(b?.rank || 999));
+  const principal = ordenados[0];
+  if (typeof principal === 'string') return recortar(principal, 500);
+  return recortar(principal?.claim || principal?.title || principal?.benefit, 500);
+}
+
 export function detectarTema(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   const temas = [];
@@ -480,9 +488,14 @@ export function construirContextoProducto(producto, mensaje) {
     if (!contexto.modo_uso) contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
   }
   if (temas.includes('beneficios')) {
-    contexto.para_que = recortar(full.what_for);
-    contexto.beneficios = recortar(full.benefits || producto.benefits);
-    if (!contexto.para_que && !contexto.beneficios) contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
+    contexto.proposito_principal = recortar(producto.purpose, 600);
+    contexto.beneficio_principal = beneficioPrincipal(producto.benefits);
+    if (!contexto.proposito_principal && !contexto.beneficio_principal) {
+      contexto.para_que = recortar(full.what_for, 600);
+    }
+    if (!contexto.proposito_principal && !contexto.beneficio_principal && !contexto.para_que) {
+      contexto.respuestas_verificadas = recortar(producto.live_ready, 1_000);
+    }
   }
   if (temas.includes('composicion')) {
     contexto.ingredientes_activos = recortar(producto.active_ingredients);

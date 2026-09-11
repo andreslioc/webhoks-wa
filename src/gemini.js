@@ -302,6 +302,8 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
     'Usa exclusivamente esos datos. No uses conocimiento general ni completes vacios.',
     'Cuando menciones un precio, usa solamente precio_venta_cop. No menciones costos calculados por porcion salvo que el cliente los pida expresamente.',
     'Cada vez que escribas el nombre de un producto, rodéalo con un solo asterisco a cada lado para mostrarlo en negrilla en WhatsApp: *Nombre del producto*.',
+    'Si preguntan para qué sirve o por sus beneficios, responde primero con proposito_principal y beneficio_principal, en máximo dos frases. No agregues preparación, tránsito intestinal ni beneficios secundarios salvo que el cliente los pregunte expresamente.',
+    'No copies literalmente los campos: sintetízalos con claridad. Evita frases vagas como “mejora el ánimo”; explica la función concreta respaldada por los datos.',
     'Antes de devolver la decisión, revisa silenciosamente que la respuesta conteste primero lo preguntado, continúe el hilo, no repita información y suene como una asesora comercial.',
     'No muestres esta revisión ni expliques tu razonamiento interno al cliente.',
     'Si la ficha no contiene la respuesta exacta, devuelve accion "humano" y respuesta vacia.',
@@ -361,6 +363,73 @@ async function redactarListaComercial(productos, pregunta) {
     usoGemini: false,
     redaccionValidada: false,
   };
+}
+
+function nombreFamiliaComun(productos, pregunta) {
+  const descartadas = new Set(['para', 'que', 'sirve', 'beneficio', 'beneficios', 'producto', 'productos', 'tiene', 'el', 'la', 'los', 'las', 'me']);
+  const tokens = normalizarBusqueda(pregunta).split(' ')
+    .filter((token) => token.length >= 4 && !descartadas.has(token));
+  const token = tokens.find((candidato) => productos.every(
+    (producto) => normalizarBusqueda(producto.name).split(' ').includes(candidato),
+  ));
+  if (!token) return null;
+  const coincidencia = String(productos[0].name).match(new RegExp(token, 'i'));
+  return coincidencia?.[0] || token;
+}
+
+function escaparRegExp(valor) {
+  return String(valor).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function redactarBeneficioFamilia(productos, pregunta) {
+  const familia = nombreFamiliaComun(productos, pregunta);
+  if (!familia) return null;
+  const datos = productos.map((producto) => {
+    const { contexto } = construirContextoProducto(producto, pregunta);
+    return {
+      producto: producto.name,
+      proposito_principal: contexto.proposito_principal,
+      beneficio_principal: contexto.beneficio_principal,
+      afirmaciones_prohibidas: contexto.afirmaciones_prohibidas,
+    };
+  });
+  try {
+    const resultado = await consultarGemini({
+      mensaje: [
+        `Pregunta del cliente: ${pregunta}`,
+        `Familia consultada: ${familia}`,
+        `Datos verificados de sus presentaciones: ${JSON.stringify(datos)}`,
+        'Analiza y sintetiza los datos; no copies literalmente ninguna frase de la base.',
+        'Responde primero qué aporta y qué función normal concreta cumple en el cuerpo. Usa una relación precisa: el magnesio participa o contribuye al funcionamiento normal; no digas que el producto mejora, corrige o favorece ese funcionamiento.',
+        'Después explica brevemente cómo se posicionan sus presentaciones como apoyo dentro de una rutina.',
+        'Puedes mencionar relajación, calma ante el estrés ocasional o descanso únicamente porque aparecen en los datos entregados. No prometas tratar estrés, ansiedad ni insomnio.',
+        'No uses “mejora el ánimo”, “mejora el estado de ánimo”, “es ideal” ni “son ideales”. No menciones preparación, tránsito intestinal, precio ni beneficios secundarios.',
+        `Nombra la familia exactamente como *${familia}*. Responde en dos frases naturales, como asesora comercial, sin saludo ni pregunta final.`,
+        'Devuelve accion "responder".',
+      ].join('\n\n'),
+      respuestaEstructurada: true,
+    });
+    let respuesta = String(resultado.respuesta || '').trim();
+    if (!respuesta.includes(`*${familia}*`)) {
+      respuesta = respuesta.replace(new RegExp(`\\b${escaparRegExp(familia)}\\b`, 'i'), `*${familia}*`);
+    }
+    const texto = normalizarBusqueda(respuesta);
+    const valida = resultado.accion === 'responder'
+      && respuesta.includes(`*${familia}*`)
+      && respuesta.length <= 650
+      && !/mejora(r)? (el )?(animo|estado de animo)|transito intestinal|disuelve|es ideal|son ideales/.test(texto);
+    if (!valida) {
+      console.error('Gemini devolvió una síntesis de familia no válida:', JSON.stringify({
+        familia,
+        accion: resultado.accion,
+        respuesta,
+      }));
+    }
+    return valida ? { ...resultado, respuesta } : null;
+  } catch (error) {
+    console.error('No se pudo redactar el beneficio de la familia con Gemini:', error.message);
+    return null;
+  }
 }
 
 gemini.post('/gemini', async (req, res) => {
@@ -448,6 +517,29 @@ gemini.post('/gemini', async (req, res) => {
             productos: productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
             continuidad: true,
             referenciaComparacion,
+          });
+        }
+      }
+    }
+
+    if (detectarTema(mensaje).includes('beneficios')) {
+      const coincidencias = await buscarProductosCoincidentes(mensaje);
+      const mencionaNombreCompleto = coincidencias.some(
+        (producto) => normalizarBusqueda(mensaje).includes(normalizarBusqueda(producto.name)),
+      );
+      if (coincidencias.length > 1 && !mencionaNombreCompleto) {
+        const resultado = await redactarBeneficioFamilia(coincidencias, mensaje);
+        if (resultado) {
+          await recordarOpciones({ ...entrada, productos: coincidencias });
+          return res.json({
+            ok: true,
+            ...resultado,
+            respuesta: resultado.respuesta,
+            motivo: 'beneficio_familia_productos',
+            usoGemini: true,
+            notificarAsesor: false,
+            candidatos: coincidencias.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+            continuidad: true,
           });
         }
       }

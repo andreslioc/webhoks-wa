@@ -139,6 +139,27 @@ test('usa live_ready cuando la preparación verificada no está en usage_mode', 
   assert.deepEqual(contexto.respuestas_verificadas, producto.live_ready);
 });
 
+test('para qué sirve prioriza propósito y beneficio principal', () => {
+  const producto = {
+    id: '1', name: 'MaxCalm',
+    purpose: 'Apoyo para la relajación, la calma ante el estrés ocasional y el descanso nocturno.',
+    benefits: [
+      { rank: 2, claim: 'Ayuda a mantener el tránsito intestinal fluido.' },
+      { rank: 1, claim: 'El magnesio participa en el funcionamiento normal de músculos y sistema nervioso.' },
+    ],
+    full_answer: {
+      what_for: 'Se disuelve en agua.',
+      benefits: 'Ayuda al tránsito intestinal.',
+    },
+    claims_allowed: [], claims_forbidden: [],
+  };
+  const { contexto } = construirContextoProducto(producto, '¿Para qué sirve?');
+  assert.match(contexto.proposito_principal, /relajación/);
+  assert.match(contexto.beneficio_principal, /funcionamiento normal/);
+  assert.equal(contexto.para_que, undefined);
+  assert.equal(contexto.beneficios, undefined);
+});
+
 test('construye una comparacion de varias fichas verificadas', () => {
   const productos = [
     {
