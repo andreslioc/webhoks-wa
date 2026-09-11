@@ -423,26 +423,32 @@ gemini.post('/gemini', async (req, res) => {
     }
 
     if (esComparacionOpciones(mensaje)) {
-      let opciones = await leerOpcionesRecordadas(entrada);
-      if (opciones.length < 2) opciones = entrada.opcionesPrevias;
-      if (opciones.length >= 2) {
-        const productos = (await Promise.all(
-          opciones.map((opcion) => obtenerProductoPorId(opcion.id)),
-        )).filter((producto) => producto && fichaApta(producto).apta);
-        if (productos.length >= 2) {
-          const respuesta = respuestaComparacionProductos(productos);
-          if (respuesta) {
-            return res.json({
-              ok: true,
-              accion: 'responder',
-              respuesta,
-              motivo: 'comparacion_verificada_productos',
-              usoGemini: false,
-              notificarAsesor: false,
-              productos: productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
-              continuidad: true,
-            });
-          }
+      let productos = await buscarProductosCoincidentes(mensaje);
+      let referenciaComparacion = 'explicita';
+      if (productos.length < 2) {
+        let opciones = await leerOpcionesRecordadas(entrada);
+        if (opciones.length < 2) opciones = entrada.opcionesPrevias;
+        productos = opciones.length >= 2
+          ? (await Promise.all(opciones.map((opcion) => obtenerProductoPorId(opcion.id))))
+            .filter((producto) => producto && fichaApta(producto).apta)
+          : [];
+        referenciaComparacion = 'ultima_lista';
+      }
+      if (productos.length >= 2) {
+        await recordarOpciones({ ...entrada, productos });
+        const respuesta = respuestaComparacionProductos(productos);
+        if (respuesta) {
+          return res.json({
+            ok: true,
+            accion: 'responder',
+            respuesta,
+            motivo: 'comparacion_verificada_productos',
+            usoGemini: false,
+            notificarAsesor: false,
+            productos: productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+            continuidad: true,
+            referenciaComparacion,
+          });
         }
       }
     }
