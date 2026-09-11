@@ -222,7 +222,49 @@ function precioVentaCop(valor) {
   if (!Number.isFinite(precio)) return null;
   return new Intl.NumberFormat('es-CO', {
     style: 'currency', currency: 'COP', maximumFractionDigits: 0,
-  }).format(precio);
+  }).format(precio).replace(/\u00a0/g, ' ');
+}
+
+function textoComparacion(producto) {
+  const full = producto.full_answer || {};
+  return normalizarBusqueda([
+    producto.name,
+    producto.presentation,
+    full.different,
+    producto.advisor_summary,
+  ].filter(Boolean).join(' '));
+}
+
+function saborProducto(producto) {
+  const texto = textoComparacion(producto);
+  if (/sin sabor|unflavored|sabor neutro|sabor original/.test(texto)) return { tipo: 'sin_sabor', etiqueta: 'no tiene sabor' };
+  if (texto.includes('frambuesa') && texto.includes('limon')) return { tipo: 'sabor', etiqueta: 'tiene sabor a frambuesa-limón' };
+  const sabores = ['vainilla', 'chocolate', 'fresa', 'naranja', 'limon', 'frambuesa', 'menta', 'cereza'];
+  const encontrado = sabores.find((sabor) => texto.includes(sabor));
+  return encontrado ? { tipo: 'sabor', etiqueta: `tiene sabor a ${encontrado}` } : null;
+}
+
+function comparacionPrincipalDeSabor(productos) {
+  if (productos.length !== 2) return null;
+  const sabores = productos.map(saborProducto);
+  if (sabores.some((sabor) => !sabor) || sabores[0].tipo === sabores[1].tipo) return null;
+  const descripciones = productos.map((producto, indice) => {
+    const precio = precioVentaCop(producto.price_cop);
+    return `${producto.name} ${sabores[indice].etiqueta}${precio ? ` y cuesta ${precio}` : ''}`;
+  });
+  const textos = productos.map(textoComparacion);
+  const mismaComposicion = textos.every((texto) => texto.includes('citrato') && texto.includes('glicinato'));
+  const mismaPresentacion = textos.every((texto) => /16 oz|16 onzas/.test(texto));
+  const coincidencias = [
+    mismaComposicion ? 'Ambos combinan citrato y glicinato de magnesio' : '',
+    mismaPresentacion ? 'los dos vienen en presentación de 16 oz' : '',
+  ].filter(Boolean);
+  return [
+    'Claro, mira: la diferencia principal entre estos dos es el sabor.',
+    `${descripciones[0]}; en cambio, ${descripciones[1]}.`,
+    coincidencias.length ? `${coincidencias.join(' y ')}.` : '',
+    '¿Cuál prefieres?',
+  ].filter(Boolean).join(' ');
 }
 
 export function respuestaListaProductos(productos, { adicionales = false } = {}) {
@@ -374,6 +416,8 @@ export function construirContextoComparacion(productos, mensaje) {
 
 export function respuestaComparacionProductos(productos) {
   if (!Array.isArray(productos) || productos.length < 2) return null;
+  const comparacionSabor = comparacionPrincipalDeSabor(productos);
+  if (comparacionSabor) return comparacionSabor;
   let hayDatosVerificados = false;
   const lineas = productos.map((producto) => {
     const full = producto.full_answer || {};
@@ -393,9 +437,9 @@ export function respuestaComparacionProductos(productos) {
   });
   if (!hayDatosVerificados) return null;
   return [
-    'Estas son las diferencias registradas en sus fichas:',
+    'Claro, mira: estas son las diferencias principales:',
     ...lineas,
-    '¿Cuál de las dos presentaciones prefieres?',
+    '¿Cuál prefieres?',
   ].join('\n');
 }
 

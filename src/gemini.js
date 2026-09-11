@@ -279,6 +279,8 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
       : 'Este puede ser el primer mensaje comercial de la conversación.',
     'Usa exclusivamente esos datos. No uses conocimiento general ni completes vacios.',
     'Cuando menciones un precio, usa solamente precio_venta_cop. No menciones costos calculados por porcion salvo que el cliente los pida expresamente.',
+    'Antes de devolver la decisión, revisa silenciosamente que la respuesta conteste primero lo preguntado, continúe el hilo, no repita información y suene como una asesora comercial.',
+    'No muestres esta revisión ni expliques tu razonamiento interno al cliente.',
     'Si la ficha no contiene la respuesta exacta, devuelve accion "humano" y respuesta vacia.',
     'Si puedes responder, devuelve accion "responder" con un texto natural de maximo tres frases.',
   ].join('\n\n');

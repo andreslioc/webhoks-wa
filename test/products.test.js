@@ -166,10 +166,28 @@ test('responde comparaciones solo con diferencias y precios de las fichas', () =
       full_answer: { different: 'Presentación neutra sin sabor y mezcla de citrato y glicinato.' },
     },
   ]);
-  assert.match(respuesta, /Sabor frambuesa-limón/);
-  assert.match(respuesta, /Presentación neutra sin sabor/);
+  assert.match(respuesta, /sabor a frambuesa-limón/i);
+  assert.match(respuesta, /no tiene sabor/i);
   assert.match(respuesta, /145[\.\s]600/);
   assert.match(respuesta, /143[\.\s]260/);
+});
+
+test('resume como asesora cuando la diferencia principal es el sabor', () => {
+  const respuesta = respuestaComparacionProductos([
+    {
+      name: 'MaxCalm Magnesium Glycinate Drink Mix', presentation: '16 oz', price_cop: 145600,
+      full_answer: { different: 'Frasco frambuesa-limón de 16 onzas; combina citrato y glicinato.' },
+    },
+    {
+      name: 'MaxCalm Powder Unflavored', presentation: '16 oz', price_cop: 143260,
+      full_answer: { different: 'Frasco sin sabor de 16 onzas; combina citrato y glicinato.' },
+    },
+  ]);
+  assert.match(respuesta, /^Claro, mira: la diferencia principal entre estos dos es el sabor\./);
+  assert.match(respuesta, /tiene sabor a frambuesa-limón/);
+  assert.match(respuesta, /no tiene sabor/);
+  assert.match(respuesta, /Ambos combinan citrato y glicinato/);
+  assert.doesNotMatch(respuesta, /registradas en sus fichas/);
 });
 
 test('reconoce bajar de peso como una busqueda por necesidad', () => {
