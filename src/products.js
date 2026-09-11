@@ -361,16 +361,15 @@ export async function buscarProductosPorNecesidad(consulta, fetchImpl = fetch) {
   };
 }
 
-export function respuestaProductosPorNecesidad(intencion, productos) {
+export function respuestaProductosPorNecesidad(_intencion, productos) {
   const lineas = productos.map((producto) => {
-    const permitidas = Array.isArray(producto.claims_allowed) ? producto.claims_allowed : [];
-    const datos = permitidas.slice(0, 2).join('; ') || producto.presentation || 'Consulta su ficha completa';
-    return `• ${producto.name}: ${datos}.`;
+    const precio = precioVentaCop(producto.price_cop);
+    return `• ${producto.name}${precio ? ` — ${precio}` : ''}.`;
   });
   return [
-    `Claro, tenemos estas opciones relacionadas con ${intencion.etiqueta}:`,
+    'Claro, tenemos estas opciones:',
     ...lineas,
-    'Son complementos y no garantizan pérdida de peso. ¿Cuál deseas conocer mejor?',
+    '¿Cuál te interesa?',
   ].join('\n');
 }
 

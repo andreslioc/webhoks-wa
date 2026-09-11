@@ -286,6 +286,58 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
   ].join('\n\n');
 }
 
+function listaComercialValida(respuesta, productos) {
+  if (typeof respuesta !== 'string' || !respuesta.trim() || respuesta.length > 650) return false;
+  const texto = normalizarBusqueda(respuesta);
+  const digitos = respuesta.replace(/\D/g, '');
+  const contieneTodo = productos.every((producto) => {
+    const nombrePresente = texto.includes(normalizarBusqueda(producto.name));
+    const precio = Number(producto.price_cop);
+    const precioPresente = !Number.isFinite(precio) || digitos.includes(String(Math.round(precio)));
+    return nombrePresente && precioPresente;
+  });
+  const agregoDetalles = /\b(porcion|dosis|ingrediente|contiene|capsula por toma|rinde|garantiza|cafeina|extracto)\b/.test(texto);
+  return contieneTodo && !agregoDetalles;
+}
+
+async function redactarListaComercial(productos, pregunta) {
+  const respaldo = respuestaProductosPorNecesidad(null, productos);
+  const hechos = productos.map(({ name, price_cop }) => ({
+    nombre_exacto: name,
+    precio_total_cop: price_cop,
+  }));
+  try {
+    const resultado = await consultarGemini({
+      mensaje: [
+        `Solicitud del cliente: ${pregunta}`,
+        `Opciones verificadas en Supabase: ${JSON.stringify(hechos)}`,
+        'Redacta una respuesta comercial breve y natural en español.',
+        'Menciona exactamente todos los nombres y sus precios totales. No cambies, redondees ni omitas ningún precio.',
+        'Puedes variar únicamente la frase inicial y la pregunta final; por ejemplo, “Claro, tenemos estas opciones”, “Sí, puedo ofrecerte estas opciones” o una variante natural.',
+        'No saludes, no te presentes y no agregues descripciones, dosis, ingredientes, beneficios, advertencias ni costos por porción.',
+        'Usa como máximo una línea introductoria, una línea por producto y una pregunta corta para saber cuál le interesa.',
+        'Devuelve accion "responder".',
+      ].join('\n\n'),
+      respuestaEstructurada: true,
+    });
+    if (resultado.accion === 'responder' && listaComercialValida(resultado.respuesta, productos)) {
+      return {
+        respuesta: resultado.respuesta,
+        interactionId: resultado.interactionId,
+        usoGemini: true,
+        redaccionValidada: true,
+      };
+    }
+  } catch (error) {
+    console.error('No se pudo redactar la lista comercial con Gemini:', error.message);
+  }
+  return {
+    respuesta: respaldo,
+    usoGemini: false,
+    redaccionValidada: false,
+  };
+}
+
 gemini.post('/gemini', async (req, res) => {
   if (!autorizado(req)) {
     return res.status(401).json({ ok: false, error: 'secreto invalido' });
@@ -424,12 +476,12 @@ gemini.post('/gemini', async (req, res) => {
       const necesidad = await buscarProductosPorNecesidad(mensaje);
       if (necesidad.estado === 'encontrados' && necesidad.productos.length) {
         await recordarOpciones({ ...entrada, productos: necesidad.productos });
+        const redaccion = await redactarListaComercial(necesidad.productos, mensaje);
         return res.json({
           ok: true,
           accion: 'responder',
-          respuesta: respuestaProductosPorNecesidad(necesidad.intencion, necesidad.productos),
+          ...redaccion,
           motivo: `busqueda_necesidad_${necesidad.intencion.id}`,
-          usoGemini: false,
           notificarAsesor: false,
           candidatos: necesidad.productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
         });

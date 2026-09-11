@@ -10,6 +10,7 @@ import {
   seleccionarProducto,
   seleccionarPorNecesidad,
   respuestaComparacionProductos,
+  respuestaProductosPorNecesidad,
   respuestaListaProductos,
 } from '../src/products.js';
 import { indiceOpcion } from '../src/product-memory.js';
@@ -195,6 +196,23 @@ test('reconoce bajar de peso como una busqueda por necesidad', () => {
   const resultado = seleccionarPorNecesidad(catalogo, '¿Qué tiene para bajar de peso?');
   assert.equal(resultado.estado, 'encontrados');
   assert.deepEqual(resultado.candidatos.map((p) => p.id), ['4', '5']);
+});
+
+test('la búsqueda por necesidad muestra solo nombres y precios totales', () => {
+  const respuesta = respuestaProductosPorNecesidad(
+    { id: 'control_peso', etiqueta: 'el control de peso' },
+    [
+      { name: 'Nighttime Weight Loss', price_cop: 84100, claims_allowed: ['Dato que no debe mostrarse'] },
+      { name: 'Thermogenic Fat Burner', price_cop: 137590, presentation: '60 cápsulas' },
+    ],
+  );
+  assert.equal(respuesta, [
+    'Claro, tenemos estas opciones:',
+    '• Nighttime Weight Loss — $ 84.100.',
+    '• Thermogenic Fat Burner — $ 137.590.',
+    '¿Cuál te interesa?',
+  ].join('\n'));
+  assert.doesNotMatch(respuesta, /por toma|ingrediente|complemento|garantiza/i);
 });
 
 test('interpreta la seleccion ordinal de una lista recordada', () => {
