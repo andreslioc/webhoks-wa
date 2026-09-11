@@ -262,12 +262,40 @@ export async function cargarCatalogo(fetchImpl = fetch) {
 
 const DETALLE = [
   'id', 'name', 'sku', 'brand', 'category', 'subcategory', 'presentation', 'format',
-  'price_cop', 'description', 'purpose', 'audience', 'active_ingredients', 'benefits',
+  'price_cop', 'stock_units', 'stock_updated_at', 'description', 'purpose', 'audience',
+  'active_ingredients', 'benefits',
   'faqs', 'objections', 'differentiators', 'precautions', 'contraindications',
   'claims_allowed', 'claims_caution', 'claims_forbidden', 'verification_gaps',
   'caution_guidance', 'avoid_guidance', 'vs_similares', 'advisor_summary',
   'full_answer', 'live_ready', 'verified_at', 'updated_at',
 ].join(',');
+
+export function seleccionarProductosConMasStock(productos, limite = 4, excluirIds = []) {
+  const excluidos = new Set(excluirIds.filter(Boolean));
+  return (productos || [])
+    .filter((producto) => !excluidos.has(producto.id))
+    .filter((producto) => Number.isFinite(Number(producto.stock_units)) && Number(producto.stock_units) > 0)
+    .filter((producto) => Number.isFinite(Number(producto.price_cop)))
+    .filter((producto) => fichaApta(producto).apta)
+    .sort((a, b) => Number(b.stock_units) - Number(a.stock_units))
+    .slice(0, limite);
+}
+
+export async function buscarProductosConMasStock(
+  limite = 4,
+  { excluirIds = [] } = {},
+  fetchImpl = fetch,
+) {
+  const parametros = {
+    select: DETALLE,
+    stock_units: 'gt.0',
+    order: 'stock_units.desc.nullslast',
+    limit: String(Math.max(limite * 3, 12)),
+  };
+  if (excluirIds.length) parametros.id = `not.in.(${excluirIds.join(',')})`;
+  const filas = await consultarSupabase(parametros, fetchImpl);
+  return seleccionarProductosConMasStock(filas, limite, excluirIds);
+}
 
 export async function obtenerProductoPorId(id, fetchImpl = fetch) {
   if (!id) return null;

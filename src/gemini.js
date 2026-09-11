@@ -4,6 +4,7 @@ import { agruparMensajesZernio, leerContextoZernio } from './zernio.js';
 import { obtenerPromptSistema } from './prompt.js';
 import {
   buscarProducto,
+  buscarProductosConMasStock,
   buscarProductosCoincidentes,
   buscarProductosPorNecesidad,
   construirContextoProducto,
@@ -19,8 +20,10 @@ import {
   indiceOpcion,
   leerOpcionesRecordadas,
   leerProductoRecordado,
+  leerProductosCatalogoMostrados,
   recordarOpciones,
   recordarProducto,
+  recordarProductosCatalogoMostrados,
 } from './product-memory.js';
 
 export const gemini = express.Router();
@@ -284,6 +287,15 @@ function pideListaProductos(mensaje) {
     || /^(que|cual|cuales)\b.*\b(tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen)\b/.test(texto);
 }
 
+function esConsultaGeneralCatalogo(mensaje) {
+  const texto = normalizarBusqueda(mensaje)
+    .replace(/^(hola|holi|hey|buenas|buenos dias|buenas tardes|buenas noches)\s+/, '')
+    .trim();
+  return /^(que|cuales) (productos|opciones)( (tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen))?$/.test(texto)
+    || /^(que|cuales) (tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen)$/.test(texto)
+    || /^(muestrame|dime) (los )?(productos|opciones)( disponibles)?$/.test(texto);
+}
+
 function precioCop(valor) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
     .format(valor)
@@ -351,8 +363,11 @@ function listaComercialValida(respuesta, productos) {
   return contieneTodo && !agregoDetalles;
 }
 
-async function redactarListaComercial(productos, pregunta) {
-  const respaldo = respuestaProductosPorNecesidad(null, productos);
+async function redactarListaComercial(productos, pregunta, { muestraCatalogo = false } = {}) {
+  const respuestaBase = respuestaProductosPorNecesidad(null, productos);
+  const respaldo = muestraCatalogo
+    ? respuestaBase.replace('Claro, tenemos estas opciones:', 'Claro, estos son algunos de los productos que manejamos:')
+    : respuestaBase;
   const hechos = productos.map(({ name, price_cop }) => ({
     nombre_exacto: name,
     precio_total_exacto: precioCop(price_cop),
@@ -363,6 +378,9 @@ async function redactarListaComercial(productos, pregunta) {
         `Solicitud del cliente: ${pregunta}`,
         `Opciones verificadas en Supabase: ${JSON.stringify(hechos)}`,
         'Redacta una respuesta comercial breve y natural en español.',
+        muestraCatalogo
+          ? 'La frase inicial debe dejar claro que es solo una muestra del catálogo. Incluye la palabra “algunos” y habla de productos que manejamos. No digas “los productos disponibles”, porque no es el catálogo completo.'
+          : '',
         'Menciona exactamente todos los nombres y reproduce cada precio_total_exacto con su signo $ y separador de miles. Escribe cada nombre entre un asterisco a cada lado, así: *Nombre exacto*. No cambies, redondees ni omitas ningún precio.',
         'Puedes variar únicamente la frase inicial y la pregunta final; por ejemplo, “Claro, tenemos estas opciones”, “Sí, puedo ofrecerte estas opciones” o una variante natural.',
         'No saludes, no te presentes y no agregues descripciones, dosis, ingredientes, beneficios, advertencias ni costos por porción.',
@@ -371,7 +389,10 @@ async function redactarListaComercial(productos, pregunta) {
       ].join('\n\n'),
       respuestaEstructurada: true,
     });
-    if (resultado.accion === 'responder' && listaComercialValida(resultado.respuesta, productos)) {
+    const introduccionValida = !muestraCatalogo
+      || (/\balgunos\b/.test(normalizarBusqueda(resultado.respuesta))
+        && !/\blos productos disponibles\b/.test(normalizarBusqueda(resultado.respuesta)));
+    if (resultado.accion === 'responder' && introduccionValida && listaComercialValida(resultado.respuesta, productos)) {
       return {
         respuesta: resultado.respuesta,
         interactionId: resultado.interactionId,
@@ -496,6 +517,34 @@ gemini.post('/gemini', async (req, res) => {
         mensajesAgrupados: agrupacion.mensajesAgrupados,
         agrupacionEstado: agrupacion.motivo || 'activa',
       });
+    }
+
+    if (esConsultaGeneralCatalogo(mensaje)) {
+      const mostrados = await leerProductosCatalogoMostrados(entrada);
+      let productos = await buscarProductosConMasStock(4, { excluirIds: mostrados });
+      let reinicioCatalogo = false;
+      if (!productos.length && mostrados.length) {
+        productos = await buscarProductosConMasStock(4);
+        reinicioCatalogo = true;
+      }
+      if (productos.length) {
+        await recordarOpciones({ ...entrada, productos });
+        await recordarProductosCatalogoMostrados({
+          ...entrada,
+          productos,
+          reiniciar: reinicioCatalogo,
+        });
+        const redaccion = await redactarListaComercial(productos, mensaje, { muestraCatalogo: true });
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          ...redaccion,
+          motivo: 'catalogo_general_mayor_stock',
+          notificarAsesor: false,
+          candidatos: productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+          continuidad: true,
+        });
+      }
     }
 
     if (solicitaTodasLasOpciones(mensaje)) {

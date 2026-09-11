@@ -1,6 +1,7 @@
 const memoria = new Map();
 const PREFIX = 'webhoks-wa:maryan:product';
 const OPTIONS_PREFIX = 'webhoks-wa:maryan:options';
+const CATALOG_PREFIX = 'webhoks-wa:maryan:catalog-shown';
 
 function redisConfig() {
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
@@ -16,6 +17,11 @@ function clave(conversationId, accountId) {
 function claveOpciones(conversationId, accountId) {
   if (!conversationId) return null;
   return `${OPTIONS_PREFIX}:${accountId || 'default'}:${conversationId}`;
+}
+
+function claveCatalogo(conversationId, accountId) {
+  if (!conversationId) return null;
+  return `${CATALOG_PREFIX}:${accountId || 'default'}:${conversationId}`;
 }
 
 function ttlSegundos() {
@@ -89,6 +95,40 @@ export async function leerOpcionesRecordadas({ conversationId, accountId }) {
     return [];
   }
   return JSON.parse(guardado.valor);
+}
+
+export async function leerProductosCatalogoMostrados({ conversationId, accountId }) {
+  const key = claveCatalogo(conversationId, accountId);
+  if (!key) return [];
+  if (redisConfig()) {
+    const valor = await redis(['GET', key]);
+    return valor ? JSON.parse(valor) : [];
+  }
+  const guardado = memoria.get(key);
+  if (!guardado || guardado.venceEn <= Date.now()) {
+    memoria.delete(key);
+    return [];
+  }
+  return JSON.parse(guardado.valor);
+}
+
+export async function recordarProductosCatalogoMostrados({
+  conversationId,
+  accountId,
+  productos,
+  reiniciar = false,
+}) {
+  const key = claveCatalogo(conversationId, accountId);
+  if (!key || !Array.isArray(productos) || !productos.length) return false;
+  const anteriores = reiniciar ? [] : await leerProductosCatalogoMostrados({ conversationId, accountId });
+  const ids = [...new Set([
+    ...anteriores,
+    ...productos.map((producto) => producto?.id).filter(Boolean),
+  ])].slice(-200);
+  const valor = JSON.stringify(ids);
+  memoria.set(key, { valor, venceEn: Date.now() + 2 * 60 * 60 * 1_000 });
+  if (redisConfig()) await redis(['SET', key, valor, 'EX', String(2 * 60 * 60)]);
+  return true;
 }
 
 export function indiceOpcion(mensaje) {

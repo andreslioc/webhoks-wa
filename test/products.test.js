@@ -9,13 +9,18 @@ import {
   normalizarBusqueda,
   puntuarProducto,
   seleccionarProducto,
+  seleccionarProductosConMasStock,
   seleccionarProductosCoincidentes,
   seleccionarPorNecesidad,
   respuestaComparacionProductos,
   respuestaProductosPorNecesidad,
   respuestaListaProductos,
 } from '../src/products.js';
-import { indiceOpcion } from '../src/product-memory.js';
+import {
+  indiceOpcion,
+  leerProductosCatalogoMostrados,
+  recordarProductosCatalogoMostrados,
+} from '../src/product-memory.js';
 
 const catalogo = [
   {
@@ -164,6 +169,45 @@ test('encuentra una referencia aunque el cliente escriba varias palabras con err
     ['precio'],
   );
   assert.deepEqual(detectarTema('¿Para ke sirbe?'), ['beneficios']);
+});
+
+test('selecciona productos verificados con mayor inventario para una consulta general', () => {
+  const ficha = {
+    price_cop: 50000,
+    verified_at: '2026-09-01T00:00:00.000Z',
+    advisor_summary: 'Ficha comercial verificada.',
+    full_answer: { what_it_is: 'Producto real.' },
+  };
+  const resultado = seleccionarProductosConMasStock([
+    { ...ficha, id: 'medium', stock_units: 20 },
+    { ...ficha, id: 'highest', stock_units: 80 },
+    { ...ficha, id: 'low', stock_units: 3 },
+    { ...ficha, id: 'without-stock', stock_units: 0 },
+    { ...ficha, id: 'unverified', stock_units: 100, verified_at: null },
+  ], 3);
+
+  assert.deepEqual(resultado.map((producto) => producto.id), ['highest', 'medium', 'low']);
+  assert.deepEqual(
+    seleccionarProductosConMasStock([
+      { ...ficha, id: 'highest', stock_units: 80 },
+      { ...ficha, id: 'medium', stock_units: 20 },
+      { ...ficha, id: 'low', stock_units: 3 },
+    ], 2, ['highest']).map((producto) => producto.id),
+    ['medium', 'low'],
+  );
+});
+
+test('recuerda acumulativamente los productos generales ya mostrados', async () => {
+  const contexto = { conversationId: `catalog-${Date.now()}`, accountId: 'test' };
+  await recordarProductosCatalogoMostrados({
+    ...contexto,
+    productos: [{ id: 'uno' }, { id: 'dos' }],
+  });
+  await recordarProductosCatalogoMostrados({
+    ...contexto,
+    productos: [{ id: 'dos' }, { id: 'tres' }],
+  });
+  assert.deepEqual(await leerProductosCatalogoMostrados(contexto), ['uno', 'dos', 'tres']);
 });
 
 test('rechaza fichas de demostracion aunque tengan fecha de verificacion', () => {
