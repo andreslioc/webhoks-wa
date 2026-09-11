@@ -257,6 +257,17 @@ function solicitaTodasLasOpciones(mensaje) {
   return /\b(todas las opciones|todos los productos|cuales son las opciones|muestrame las opciones|dime las opciones)\b/.test(texto);
 }
 
+function esFiltroAbiertoDeCatalogo(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  if (/\b(precio|cuanto|cuesta|vale|usar|uso|tomar|dosis|beneficio|sirve|diferencia|ingredientes|contiene|seguro|contraindicacion)\b/.test(texto)) {
+    return false;
+  }
+  const palabrasUtiles = texto
+    .split(' ')
+    .filter((palabra) => palabra && !['y', 'de', 'del', 'el', 'la', 'los', 'las', 'un', 'una', 'quiero', 'busco', 'necesito'].includes(palabra));
+  return texto.startsWith('y ') || (palabrasUtiles.length >= 1 && palabrasUtiles.length <= 3);
+}
+
 function pideListaProductos(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   return /\b(productos|opciones|cuales)\b/.test(texto)
@@ -490,6 +501,23 @@ gemini.post('/gemini', async (req, res) => {
           motivo: 'lista_productos_coincidentes',
           notificarAsesor: false,
           candidatos: coincidencias.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+        });
+      }
+    }
+
+    if (esFiltroAbiertoDeCatalogo(mensaje)) {
+      const coincidencias = await buscarProductosCoincidentes(mensaje);
+      if (coincidencias.length > 1) {
+        await recordarOpciones({ ...entrada, productos: coincidencias });
+        const redaccion = await redactarListaComercial(coincidencias, mensaje);
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          ...redaccion,
+          motivo: 'filtro_abierto_catalogo',
+          notificarAsesor: false,
+          candidatos: coincidencias.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+          continuidad: true,
         });
       }
     }

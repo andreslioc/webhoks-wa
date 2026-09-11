@@ -6,6 +6,7 @@ import {
   detectarTema,
   detectarNecesidad,
   fichaApta,
+  normalizarBusqueda,
   puntuarProducto,
   seleccionarProducto,
   seleccionarPorNecesidad,
@@ -229,6 +230,15 @@ test('encuentra productos por componentes de active_ingredients', () => {
     active_ingredients: [{ name: 'Glicinato de magnesio', amount: '200 mg' }],
   };
   const resultado = puntuarProducto(producto, 'Y glicinato de magnesio?');
+  assert.ok(resultado.score >= 70);
+});
+
+test('normaliza variantes frecuentes de ashwagandha', () => {
+  assert.equal(normalizarBusqueda('¿Y ashawanda?'), 'y ashwagandha');
+  const resultado = puntuarProducto(
+    { name: 'Ashwagandha Root Extract', keywords: ['ashwagandha'] },
+    '¿Y ashawanda?',
+  );
   assert.ok(resultado.score >= 70);
 });
 

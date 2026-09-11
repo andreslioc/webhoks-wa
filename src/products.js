@@ -42,7 +42,8 @@ export function normalizarBusqueda(valor) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' ')
+    .replace(/\b(ashawanda|ashwaganda|ashuaganda|ashuawanda)\b/g, 'ashwagandha');
 }
 
 function tokensUtiles(valor) {
