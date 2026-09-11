@@ -220,7 +220,13 @@ export async function buscarProductosCoincidentes(consulta, { excluirIds = [], l
 export function respuestaListaProductos(productos, { adicionales = false } = {}) {
   const lineas = productos.map((producto) => {
     const detalle = producto.presentation || producto.format || producto.brand;
-    return `• ${producto.name}${detalle ? `: ${detalle}` : ''}.`;
+    const precio = Number(producto.price_cop);
+    const precioVenta = Number.isFinite(precio)
+      ? new Intl.NumberFormat('es-CO', {
+        style: 'currency', currency: 'COP', maximumFractionDigits: 0,
+      }).format(precio)
+      : null;
+    return `• ${producto.name}${detalle ? `: ${detalle}` : ''}${precioVenta ? ` — ${precioVenta}` : ''}.`;
   });
   const todosRestringidos = productos.length > 0 && productos.every((producto) => {
     const full = producto.full_answer || {};
@@ -390,7 +396,7 @@ export function construirContextoProducto(producto, mensaje) {
   if (temas.includes('general')) {
     contexto.resumen_asesor = recortar(producto.advisor_summary);
     contexto.que_es = recortar(full.what_it_is);
-    contexto.comercial = recortar(full.commercial);
+    contexto.precio_venta_cop = producto.price_cop;
   }
 
   contexto.afirmaciones_permitidas = recortar(producto.claims_allowed, 700);

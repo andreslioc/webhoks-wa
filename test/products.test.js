@@ -136,10 +136,15 @@ test('interpreta la seleccion ordinal de una lista recordada', () => {
 });
 
 test('presenta una lista de productos sin enviar al asesor', () => {
-  const respuesta = respuestaListaProductos([catalogo[3], catalogo[4]]);
+  const respuesta = respuestaListaProductos([
+    { ...catalogo[3], price_cop: 145600 },
+    { ...catalogo[4], price_cop: 143260 },
+  ]);
   assert.match(respuesta, /Claro, manejamos estas opciones/);
   assert.match(respuesta, /Thermogenic Fat Burner/);
   assert.match(respuesta, /Nighttime Weight Loss/);
+  assert.match(respuesta, /145[\.\s]600/);
+  assert.match(respuesta, /143[\.\s]260/);
   assert.match(respuesta, /Cuál deseas conocer mejor/);
 });
 

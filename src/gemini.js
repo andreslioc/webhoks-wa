@@ -244,7 +244,8 @@ function esConsultaAlternativas(mensaje) {
 function pideListaProductos(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   return /\b(productos|opciones|cuales)\b/.test(texto)
-    || /\b(que|cuales)\b.*\b(manejan|venden|tienen|ofrecen)\b/.test(texto);
+    || /^(tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen)\b/.test(texto)
+    || /^(que|cual|cuales)\b.*\b(tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen)\b/.test(texto);
 }
 
 function precioCop(valor) {
@@ -256,13 +257,17 @@ function respuestaAmbigua(candidatos) {
   return `Encontré varias opciones: ${nombres.join(', ')}. ¿Cuál de ellas deseas consultar?`;
 }
 
-function mensajeConContexto(pregunta, producto) {
+function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
   const { temas, contexto } = construirContextoProducto(producto, pregunta);
   return [
     `Pregunta del cliente: ${pregunta}`,
     `Temas detectados: ${temas.join(', ')}`,
     `Datos autorizados y verificados del producto: ${JSON.stringify(contexto)}`,
+    continuacion
+      ? 'Este mensaje continúa una conversación activa. Responde directamente: no saludes, no te presentes y no repitas “Soy Maryan”.'
+      : 'Este puede ser el primer mensaje comercial de la conversación.',
     'Usa exclusivamente esos datos. No uses conocimiento general ni completes vacios.',
+    'Cuando menciones un precio, usa solamente precio_venta_cop. No menciones costos calculados por porcion salvo que el cliente los pida expresamente.',
     'Si la ficha no contiene la respuesta exacta, devuelve accion "humano" y respuesta vacia.',
     'Si puedes responder, devuelve accion "responder" con un texto natural de maximo tres frases.',
   ].join('\n\n');
@@ -444,11 +449,13 @@ gemini.post('/gemini', async (req, res) => {
     }
 
     const preguntaGemini = busqueda.confianza === 'opcion_recordada'
-      ? `El cliente eligió ${busqueda.producto.name} de la lista que se le mostró. Preséntale brevemente qué es y la información comercial verificada disponible.`
+      ? `El cliente eligió ${busqueda.producto.name} de la lista que se le mostró. Preséntale brevemente qué es y su precio total de venta. No calcules ni menciones el costo por porción.`
       : mensaje;
     const resultado = await consultarGemini({
       ...entrada,
-      mensaje: mensajeConContexto(preguntaGemini, busqueda.producto),
+      mensaje: mensajeConContexto(preguntaGemini, busqueda.producto, {
+        continuacion: busqueda.confianza === 'opcion_recordada' || productoRecordado || esSeguimiento(mensaje),
+      }),
       respuestaEstructurada: true,
     });
     const humano = resultado.accion === 'humano';
