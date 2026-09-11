@@ -285,6 +285,20 @@ function nombreWhatsApp(valor) {
   return `*${String(valor || '').replace(/\*/g, '')}*`;
 }
 
+function asegurarInvitacionFinal(respuesta, semilla = '') {
+  const texto = String(respuesta || '').trim();
+  if (!texto || texto.includes('?')) return texto;
+
+  const invitaciones = [
+    '¿Qué más te gustaría saber?',
+    '¿En qué más puedo ayudarte?',
+    '¿Hay algo más que quieras consultar?',
+  ];
+  const indice = [...String(semilla)].reduce((total, caracter) => total + caracter.codePointAt(0), 0)
+    % invitaciones.length;
+  return `${texto} ${invitaciones[indice]}`;
+}
+
 function respuestaAmbigua(candidatos) {
   const nombres = candidatos.map((producto) => nombreWhatsApp(producto.name)).slice(0, 3);
   return `Encontré varias opciones: ${nombres.join(', ')}. ¿Cuál de ellas deseas consultar?`;
@@ -304,6 +318,7 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
     'Cada vez que escribas el nombre de un producto, rodéalo con un solo asterisco a cada lado para mostrarlo en negrilla en WhatsApp: *Nombre del producto*.',
     'Si preguntan para qué sirve o por sus beneficios, responde primero con proposito_principal y beneficio_principal, en máximo dos frases. No agregues preparación, tránsito intestinal ni beneficios secundarios salvo que el cliente los pregunte expresamente.',
     'No copies literalmente los campos: sintetízalos con claridad. Evita frases vagas como “mejora el ánimo”; explica la función concreta respaldada por los datos.',
+    'Después de responder una consulta informativa, termina con una sola pregunta breve y natural que invite a continuar, como “¿Qué más te gustaría saber?” o “¿En qué más puedo ayudarte?”. Varía la frase y no presiones la compra.',
     'Antes de devolver la decisión, revisa silenciosamente que la respuesta conteste primero lo preguntado, continúe el hilo, no repita información y suene como una asesora comercial.',
     'No muestres esta revisión ni expliques tu razonamiento interno al cliente.',
     'Si la ficha no contiene la respuesta exacta, devuelve accion "humano" y respuesta vacia.',
@@ -404,7 +419,7 @@ async function redactarBeneficioFamilia(productos, pregunta) {
         'Después explica brevemente cómo se posicionan sus presentaciones como apoyo dentro de una rutina.',
         'Puedes mencionar relajación, calma ante el estrés ocasional o descanso únicamente porque aparecen en los datos entregados. No prometas tratar estrés, ansiedad ni insomnio.',
         'No uses “mejora el ánimo”, “mejora el estado de ánimo”, “es ideal” ni “son ideales”. No menciones preparación, tránsito intestinal, precio ni beneficios secundarios.',
-        `Nombra la familia exactamente como *${familia}*. Responde en dos frases naturales, como asesora comercial, sin saludo ni pregunta final.`,
+        `Nombra la familia exactamente como *${familia}*. Responde en dos frases informativas naturales, como asesora comercial, sin saludo. Termina con una tercera frase breve que invite al cliente a seguir preguntando; varíala y no presiones la compra.`,
         'Devuelve accion "responder".',
       ].join('\n\n'),
       respuestaEstructurada: true,
@@ -417,6 +432,7 @@ async function redactarBeneficioFamilia(productos, pregunta) {
     const valida = resultado.accion === 'responder'
       && respuesta.includes(`*${familia}*`)
       && respuesta.length <= 650
+      && respuesta.includes('?')
       && !/mejora(r)? (el )?(animo|estado de animo)|transito intestinal|disuelve|es ideal|son ideales/.test(texto);
     if (!valida) {
       console.error('Gemini devolvió una síntesis de familia no válida:', JSON.stringify({
@@ -705,7 +721,7 @@ gemini.post('/gemini', async (req, res) => {
       return res.json({
         ok: true,
         accion: 'responder',
-        respuesta: `El precio de ${nombreWhatsApp(busqueda.producto.name)} es ${precioCop(busqueda.producto.price_cop)}.`,
+        respuesta: `El precio de ${nombreWhatsApp(busqueda.producto.name)} es ${precioCop(busqueda.producto.price_cop)}. ¿Qué más te gustaría saber sobre este producto?`,
         motivo: 'precio_verificado',
         usoGemini: false,
         notificarAsesor: false,
@@ -727,7 +743,7 @@ gemini.post('/gemini', async (req, res) => {
     return res.json({
       ok: true,
       ...resultado,
-      respuesta: humano ? '' : resultado.respuesta,
+      respuesta: humano ? '' : asegurarInvitacionFinal(resultado.respuesta, mensaje),
       usoGemini: true,
       notificarAsesor: humano,
       producto: { id: busqueda.producto.id, name: busqueda.producto.name, sku: busqueda.producto.sku },
