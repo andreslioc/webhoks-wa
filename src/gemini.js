@@ -72,7 +72,7 @@ export function leerEntrada(datos = {}) {
   );
   const respuestaAnterior = datos.leadResponse?.body || variables.leadResponse?.body || {};
   const opcionesPrevias = Array.isArray(respuestaAnterior.candidatos)
-    ? respuestaAnterior.candidatos.filter((producto) => producto?.id).slice(0, 5)
+    ? respuestaAnterior.candidatos.filter((producto) => producto?.id).slice(0, 10)
     : [];
 
   return {
@@ -252,6 +252,11 @@ function esComparacionOpciones(mensaje) {
   return /\b(diferencia|diferencias|comparar|comparacion|comparaciones|entre ambos|entre los dos)\b/.test(texto);
 }
 
+function solicitaTodasLasOpciones(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  return /\b(todas las opciones|todos los productos|cuales son las opciones|muestrame las opciones|dime las opciones)\b/.test(texto);
+}
+
 function pideListaProductos(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   return /\b(productos|opciones|cuales)\b/.test(texto)
@@ -260,11 +265,17 @@ function pideListaProductos(mensaje) {
 }
 
 function precioCop(valor) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(valor);
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
+    .format(valor)
+    .replace(/\u00a0/g, ' ');
+}
+
+function nombreWhatsApp(valor) {
+  return `*${String(valor || '').replace(/\*/g, '')}*`;
 }
 
 function respuestaAmbigua(candidatos) {
-  const nombres = candidatos.map((producto) => producto.name).slice(0, 3);
+  const nombres = candidatos.map((producto) => nombreWhatsApp(producto.name)).slice(0, 3);
   return `Encontré varias opciones: ${nombres.join(', ')}. ¿Cuál de ellas deseas consultar?`;
 }
 
@@ -279,6 +290,7 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
       : 'Este puede ser el primer mensaje comercial de la conversación.',
     'Usa exclusivamente esos datos. No uses conocimiento general ni completes vacios.',
     'Cuando menciones un precio, usa solamente precio_venta_cop. No menciones costos calculados por porcion salvo que el cliente los pida expresamente.',
+    'Cada vez que escribas el nombre de un producto, rodéalo con un solo asterisco a cada lado para mostrarlo en negrilla en WhatsApp: *Nombre del producto*.',
     'Antes de devolver la decisión, revisa silenciosamente que la respuesta conteste primero lo preguntado, continúe el hilo, no repita información y suene como una asesora comercial.',
     'No muestres esta revisión ni expliques tu razonamiento interno al cliente.',
     'Si la ficha no contiene la respuesta exacta, devuelve accion "humano" y respuesta vacia.',
@@ -287,14 +299,16 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
 }
 
 function listaComercialValida(respuesta, productos) {
-  if (typeof respuesta !== 'string' || !respuesta.trim() || respuesta.length > 650) return false;
+  if (typeof respuesta !== 'string' || !respuesta.trim() || respuesta.length > 1_500) return false;
   const texto = normalizarBusqueda(respuesta);
-  const digitos = respuesta.replace(/\D/g, '');
+  const respuestaSinEspacios = respuesta.replace(/[\s\u00a0]/g, '');
   const contieneTodo = productos.every((producto) => {
     const nombrePresente = texto.includes(normalizarBusqueda(producto.name));
+    const nombreEnNegrilla = respuesta.includes(nombreWhatsApp(producto.name));
     const precio = Number(producto.price_cop);
-    const precioPresente = !Number.isFinite(precio) || digitos.includes(String(Math.round(precio)));
-    return nombrePresente && precioPresente;
+    const precioEsperado = Number.isFinite(precio) ? precioCop(precio).replace(/[\s\u00a0]/g, '') : '';
+    const precioPresente = !precioEsperado || respuestaSinEspacios.includes(precioEsperado);
+    return nombrePresente && nombreEnNegrilla && precioPresente;
   });
   const agregoDetalles = /\b(porcion|dosis|ingrediente|contiene|capsula por toma|rinde|garantiza|cafeina|extracto)\b/.test(texto);
   return contieneTodo && !agregoDetalles;
@@ -304,7 +318,7 @@ async function redactarListaComercial(productos, pregunta) {
   const respaldo = respuestaProductosPorNecesidad(null, productos);
   const hechos = productos.map(({ name, price_cop }) => ({
     nombre_exacto: name,
-    precio_total_cop: price_cop,
+    precio_total_exacto: precioCop(price_cop),
   }));
   try {
     const resultado = await consultarGemini({
@@ -312,7 +326,7 @@ async function redactarListaComercial(productos, pregunta) {
         `Solicitud del cliente: ${pregunta}`,
         `Opciones verificadas en Supabase: ${JSON.stringify(hechos)}`,
         'Redacta una respuesta comercial breve y natural en español.',
-        'Menciona exactamente todos los nombres y sus precios totales. No cambies, redondees ni omitas ningún precio.',
+        'Menciona exactamente todos los nombres y reproduce cada precio_total_exacto con su signo $ y separador de miles. Escribe cada nombre entre un asterisco a cada lado, así: *Nombre exacto*. No cambies, redondees ni omitas ningún precio.',
         'Puedes variar únicamente la frase inicial y la pregunta final; por ejemplo, “Claro, tenemos estas opciones”, “Sí, puedo ofrecerte estas opciones” o una variante natural.',
         'No saludes, no te presentes y no agregues descripciones, dosis, ingredientes, beneficios, advertencias ni costos por porción.',
         'Usa como máximo una línea introductoria, una línea por producto y una pregunta corta para saber cuál le interesa.',
@@ -375,6 +389,28 @@ gemini.post('/gemini', async (req, res) => {
       });
     }
 
+    if (solicitaTodasLasOpciones(mensaje)) {
+      let opciones = await leerOpcionesRecordadas(entrada);
+      if (!opciones.length) opciones = entrada.opcionesPrevias;
+      if (opciones.length) {
+        const productos = (await Promise.all(
+          opciones.map((opcion) => obtenerProductoPorId(opcion.id)),
+        )).filter((producto) => producto && fichaApta(producto).apta);
+        if (productos.length) {
+          const redaccion = await redactarListaComercial(productos, mensaje);
+          return res.json({
+            ok: true,
+            accion: 'responder',
+            ...redaccion,
+            motivo: 'lista_opciones_recordadas',
+            notificarAsesor: false,
+            candidatos: productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+            continuidad: true,
+          });
+        }
+      }
+    }
+
     if (esComparacionOpciones(mensaje)) {
       let opciones = await leerOpcionesRecordadas(entrada);
       if (opciones.length < 2) opciones = entrada.opcionesPrevias;
@@ -410,12 +446,12 @@ gemini.post('/gemini', async (req, res) => {
         );
         if (alternativas.length) {
           await recordarOpciones({ ...entrada, productos: alternativas });
+          const redaccion = await redactarListaComercial(alternativas, mensaje);
           return res.json({
             ok: true,
             accion: 'responder',
-            respuesta: respuestaListaProductos(alternativas, { adicionales: true }),
+            ...redaccion,
             motivo: 'productos_relacionados',
-            usoGemini: false,
             notificarAsesor: false,
             candidatos: alternativas.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
           });
@@ -434,7 +470,7 @@ gemini.post('/gemini', async (req, res) => {
         return res.json({
           ok: true,
           accion: 'responder',
-          respuesta: `Por el momento esas son las opciones relacionadas que encuentro: ${opcionesMostradas.map((producto) => producto.name).join(', ')}. ¿Cuál deseas conocer mejor?`,
+          respuesta: `Por el momento esas son las opciones relacionadas que encuentro: ${opcionesMostradas.map((producto) => nombreWhatsApp(producto.name)).join(', ')}. ¿Cuál deseas conocer mejor?`,
           motivo: 'opciones_catalogo_ya_mostradas',
           usoGemini: false,
           notificarAsesor: false,
@@ -446,12 +482,12 @@ gemini.post('/gemini', async (req, res) => {
       const coincidencias = await buscarProductosCoincidentes(mensaje);
       if (coincidencias.length > 1) {
         await recordarOpciones({ ...entrada, productos: coincidencias });
+        const redaccion = await redactarListaComercial(coincidencias, mensaje);
         return res.json({
           ok: true,
           accion: 'responder',
-          respuesta: respuestaListaProductos(coincidencias),
+          ...redaccion,
           motivo: 'lista_productos_coincidentes',
-          usoGemini: false,
           notificarAsesor: false,
           candidatos: coincidencias.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
         });
@@ -500,6 +536,19 @@ gemini.post('/gemini', async (req, res) => {
     }
 
     if (busqueda.estado === 'ambiguo') {
+      const coincidencias = await buscarProductosCoincidentes(mensaje);
+      if (coincidencias.length > 1) {
+        await recordarOpciones({ ...entrada, productos: coincidencias });
+        const redaccion = await redactarListaComercial(coincidencias, mensaje);
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          ...redaccion,
+          motivo: 'lista_productos_por_componente',
+          notificarAsesor: false,
+          candidatos: coincidencias.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+        });
+      }
       return res.json({
         ok: true,
         accion: 'responder',
@@ -530,7 +579,7 @@ gemini.post('/gemini', async (req, res) => {
       return res.json({
         ok: true,
         accion: 'responder',
-        respuesta: `El precio de ${busqueda.producto.name} es ${precioCop(busqueda.producto.price_cop)}.`,
+        respuesta: `El precio de ${nombreWhatsApp(busqueda.producto.name)} es ${precioCop(busqueda.producto.price_cop)}.`,
         motivo: 'precio_verificado',
         usoGemini: false,
         notificarAsesor: false,
@@ -539,7 +588,7 @@ gemini.post('/gemini', async (req, res) => {
     }
 
     const preguntaGemini = busqueda.confianza === 'opcion_recordada'
-      ? `El cliente eligió ${busqueda.producto.name} de la lista que se le mostró. Preséntale brevemente qué es y su precio total de venta. No calcules ni menciones el costo por porción.`
+      ? `El cliente eligió ${nombreWhatsApp(busqueda.producto.name)} de la lista que se le mostró. Conserva los asteriscos alrededor del nombre al responder. Preséntale brevemente qué es y su precio total de venta. No calcules ni menciones el costo por porción.`
       : mensaje;
     const resultado = await consultarGemini({
       ...entrada,

@@ -208,8 +208,8 @@ test('la búsqueda por necesidad muestra solo nombres y precios totales', () => 
   );
   assert.equal(respuesta, [
     'Claro, tenemos estas opciones:',
-    '• Nighttime Weight Loss — $ 84.100.',
-    '• Thermogenic Fat Burner — $ 137.590.',
+    '• *Nighttime Weight Loss* — $ 84.100.',
+    '• *Thermogenic Fat Burner* — $ 137.590.',
     '¿Cuál te interesa?',
   ].join('\n'));
   assert.doesNotMatch(respuesta, /por toma|ingrediente|complemento|garantiza/i);
@@ -220,6 +220,16 @@ test('interpreta la seleccion ordinal de una lista recordada', () => {
   assert.equal(indiceOpcion('La opción 1'), 0);
   assert.equal(indiceOpcion('No sé cuál'), -1);
   assert.equal(indiceOpcion('El cuarto'), 3);
+  assert.equal(indiceOpcion('La opción 10'), 9);
+});
+
+test('encuentra productos por componentes de active_ingredients', () => {
+  const producto = {
+    name: 'Suplemento nocturno',
+    active_ingredients: [{ name: 'Glicinato de magnesio', amount: '200 mg' }],
+  };
+  const resultado = puntuarProducto(producto, 'Y glicinato de magnesio?');
+  assert.ok(resultado.score >= 70);
 });
 
 test('presenta una lista de productos sin enviar al asesor', () => {

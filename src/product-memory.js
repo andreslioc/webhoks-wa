@@ -70,7 +70,7 @@ export async function leerProductoRecordado({ conversationId, accountId }) {
 export async function recordarOpciones({ conversationId, accountId, productos }) {
   const key = claveOpciones(conversationId, accountId);
   if (!key || !Array.isArray(productos) || !productos.length) return false;
-  const valor = JSON.stringify(productos.slice(0, 5).map(({ id, name, sku }) => ({ id, name, sku })));
+  const valor = JSON.stringify(productos.slice(0, 10).map(({ id, name, sku }) => ({ id, name, sku })));
   memoria.set(key, { valor, venceEn: Date.now() + 2 * 60 * 60 * 1_000 });
   if (redisConfig()) await redis(['SET', key, valor, 'EX', String(2 * 60 * 60)]);
   return true;
@@ -98,5 +98,10 @@ export function indiceOpcion(mensaje) {
   if (/\b(tercero|tercera|numero 3|opcion 3|el 3)\b/.test(texto)) return 2;
   if (/\b(cuarto|cuarta|numero 4|opcion 4|el 4)\b/.test(texto)) return 3;
   if (/\b(quinto|quinta|numero 5|opcion 5|el 5)\b/.test(texto)) return 4;
+  if (/\b(sexto|sexta|numero 6|opcion 6|el 6)\b/.test(texto)) return 5;
+  if (/\b(septimo|septima|numero 7|opcion 7|el 7)\b/.test(texto)) return 6;
+  if (/\b(octavo|octava|numero 8|opcion 8|el 8)\b/.test(texto)) return 7;
+  if (/\b(noveno|novena|numero 9|opcion 9|el 9)\b/.test(texto)) return 8;
+  if (/\b(decimo|decima|numero 10|opcion 10|el 10)\b/.test(texto)) return 9;
   return -1;
 }

@@ -80,7 +80,11 @@ function similitudToken(a, b) {
 
 function camposIndice(producto) {
   const keywords = Array.isArray(producto.keywords) ? producto.keywords : [];
-  return [producto.name, producto.sku, producto.brand, producto.category, producto.presentation, ...keywords]
+  return [
+    producto.name, producto.sku, producto.brand, producto.category,
+    producto.presentation, producto.purpose, JSON.stringify(producto.active_ingredients || []),
+    ...keywords,
+  ]
     .filter(Boolean);
 }
 
@@ -92,12 +96,14 @@ export function puntuarProducto(producto, consulta) {
   const consultaTokens = tokensUtiles(q);
   const nombreTokens = new Set(tokensUtiles(producto.name));
   const marcaTokens = new Set(tokensUtiles(producto.brand));
+  const ingredientesTokens = new Set(tokensUtiles(JSON.stringify(producto.active_ingredients || [])));
   const otrosTokens = new Set(tokensUtiles([
     producto.category,
     producto.presentation,
+    producto.purpose,
     ...keywords,
   ].join(' ')));
-  const productoTokens = new Set([...nombreTokens, ...marcaTokens, ...otrosTokens]);
+  const productoTokens = new Set([...nombreTokens, ...marcaTokens, ...ingredientesTokens, ...otrosTokens]);
   let score = 0;
   let exacto = false;
 
@@ -126,6 +132,11 @@ export function puntuarProducto(producto, consulta) {
       continue;
     }
     if (marcaTokens.has(token)) {
+      tokensExactos += 1;
+      score += 35;
+      continue;
+    }
+    if (ingredientesTokens.has(token)) {
       tokensExactos += 1;
       score += 35;
       continue;
@@ -172,7 +183,7 @@ export async function cargarCatalogo(fetchImpl = fetch) {
   const ahora = Date.now();
   if (cacheCatalogo.venceEn > ahora && cacheCatalogo.filas.length) return cacheCatalogo.filas;
   const filas = await consultarSupabase({
-    select: 'id,name,sku,brand,category,presentation,keywords,purpose,verified_at',
+    select: 'id,name,sku,brand,category,presentation,keywords,purpose,active_ingredients,verified_at',
     limit: '1000',
   }, fetchImpl);
   const ttl = Number(process.env.PRODUCT_CATALOG_CACHE_MS) || DEFAULT_CACHE_MS;
@@ -203,7 +214,7 @@ export async function buscarProducto(consulta, fetchImpl = fetch) {
   return { ...seleccion, producto };
 }
 
-export async function buscarProductosCoincidentes(consulta, { excluirIds = [], limite = 5 } = {}, fetchImpl = fetch) {
+export async function buscarProductosCoincidentes(consulta, { excluirIds = [], limite = 10 } = {}, fetchImpl = fetch) {
   const excluidos = new Set(excluirIds.filter(Boolean));
   const catalogo = await cargarCatalogo(fetchImpl);
   const candidatos = catalogo
@@ -223,6 +234,10 @@ function precioVentaCop(valor) {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency', currency: 'COP', maximumFractionDigits: 0,
   }).format(precio).replace(/\u00a0/g, ' ');
+}
+
+function nombreWhatsApp(valor) {
+  return `*${String(valor || '').replace(/\*/g, '')}*`;
 }
 
 function textoComparacion(producto) {
@@ -250,7 +265,7 @@ function comparacionPrincipalDeSabor(productos) {
   if (sabores.some((sabor) => !sabor) || sabores[0].tipo === sabores[1].tipo) return null;
   const descripciones = productos.map((producto, indice) => {
     const precio = precioVentaCop(producto.price_cop);
-    return `${producto.name} ${sabores[indice].etiqueta}${precio ? ` y cuesta ${precio}` : ''}`;
+    return `${nombreWhatsApp(producto.name)} ${sabores[indice].etiqueta}${precio ? ` y cuesta ${precio}` : ''}`;
   });
   const textos = productos.map(textoComparacion);
   const mismaComposicion = textos.every((texto) => texto.includes('citrato') && texto.includes('glicinato'));
@@ -271,7 +286,7 @@ export function respuestaListaProductos(productos, { adicionales = false } = {})
   const lineas = productos.map((producto) => {
     const detalle = producto.presentation || producto.format || producto.brand;
     const precioVenta = precioVentaCop(producto.price_cop);
-    return `• ${producto.name}${detalle ? `: ${detalle}` : ''}${precioVenta ? ` — ${precioVenta}` : ''}.`;
+    return `• ${nombreWhatsApp(producto.name)}${detalle ? `: ${detalle}` : ''}${precioVenta ? ` — ${precioVenta}` : ''}.`;
   });
   const todosRestringidos = productos.length > 0 && productos.every((producto) => {
     const full = producto.full_answer || {};
@@ -364,7 +379,7 @@ export async function buscarProductosPorNecesidad(consulta, fetchImpl = fetch) {
 export function respuestaProductosPorNecesidad(_intencion, productos) {
   const lineas = productos.map((producto) => {
     const precio = precioVentaCop(producto.price_cop);
-    return `• ${producto.name}${precio ? ` — ${precio}` : ''}.`;
+    return `• ${nombreWhatsApp(producto.name)}${precio ? ` — ${precio}` : ''}.`;
   });
   return [
     'Claro, tenemos estas opciones:',
@@ -432,7 +447,7 @@ export function respuestaComparacionProductos(productos) {
       !diferencia && presentacion ? `Presentación: ${presentacion}` : '',
       precio ? `Precio total: ${precio}` : '',
     ].filter(Boolean).map((texto) => texto.replace(/[.\s]+$/, ''));
-    return `• ${producto.name}: ${detalles.join('. ')}.`;
+    return `• ${nombreWhatsApp(producto.name)}: ${detalles.join('. ')}.`;
   });
   if (!hayDatosVerificados) return null;
   return [
