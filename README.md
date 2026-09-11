@@ -234,6 +234,25 @@ En Zernio, esta rama no debe tener `Send message`: llama `/notify`, ejecuta
 como “¿y cómo se usa?” sin volver a buscarlo en el texto. El avance y la matriz
 de casos están en `PLAN_MARYAN.md`.
 
+Guarda la respuesta de `/gemini` como `leadResponse`. En el nodo `/notify`, usa
+el mensaje que produjo el traspaso en lugar del texto inicial del trigger:
+
+```json
+{
+  "titulo": "Atención humana requerida",
+  "nombre": "{{contact.name}}",
+  "telefono": "{{contact.phone}}",
+  "motivo": "{{leadResponse.body.motivo}}",
+  "mensaje": "{{leadResponse.body.ultimoMensaje}}",
+  "origen": "Maryan · Zernio",
+  "conversationId": "{{conversationId}}"
+}
+```
+
+`ultimoMensaje` contiene el último texto recibido incluso cuando el webhook
+agrupó varios mensajes consecutivos. Para audio, imagen o archivo contiene una
+etiqueta como `[audio recibido]`.
+
 Las consultas por necesidad también se resuelven antes de Gemini. Por ejemplo,
 “¿qué tiene para bajar de peso?” se relaciona de forma controlada con las frases
 `control de peso`, `quemador de grasa` y `weight loss` presentes en el catálogo.

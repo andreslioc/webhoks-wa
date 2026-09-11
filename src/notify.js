@@ -9,8 +9,9 @@ const CAMPOS = [
   { etiqueta: 'Telefono', claves: ['telefono', 'phone', 'celular', 'whatsapp', 'numero', 'movil', 'tel'] },
   { etiqueta: 'Email',    claves: ['email', 'correo', 'mail', 'e_mail'] },
   { etiqueta: 'Motivo',   claves: ['motivo', 'asunto', 'reason', 'subject', 'tema', 'servicio'] },
-  { etiqueta: 'Mensaje',  claves: ['mensaje', 'message', 'texto', 'text', 'comentario', 'consulta', 'nota',
-                                 'inbound_text', 'last_message', 'trigger_text'] },
+  { etiqueta: 'Mensaje',  claves: ['ultimo_mensaje', 'last_customer_message', 'mensaje', 'message', 'texto',
+                                 'text', 'comentario', 'consulta', 'nota', 'inbound_text', 'last_message',
+                                 'trigger_text'] },
   { etiqueta: 'Origen',   claves: ['origen', 'source', 'canal', 'channel', 'campana', 'campaign',
                                  'platform', 'plataforma'] },
 ];
@@ -38,6 +39,7 @@ const CLAVES_RUIDO = [
   'event', 'event_type', 'tipo_evento',
   'workflow_id', 'workflow', 'execution_id', 'execution', 'flow_id', 'node_id',
   'request_id', 'trace_id', 'webhook_id', 'account_id', 'tenant_id',
+  'titulo', 'title', 'inbound_text', 'last_message', 'trigger_text', 'ultimo_mensaje',
 ];
 
 const norm = (k) => String(k)
@@ -124,7 +126,9 @@ export function construirAviso(datos, titulo) {
   const publicados = new Set();
 
   for (const { etiqueta, claves } of CAMPOS) {
-    const encontrada = Object.keys(plano).find((k) => claves.includes(hoja(k)));
+    const encontrada = claves
+      .map((clave) => Object.keys(plano).find((k) => hoja(k) === clave))
+      .find(Boolean);
     if (encontrada) {
       usadas.add(encontrada);
       publicados.add(plano[encontrada]);

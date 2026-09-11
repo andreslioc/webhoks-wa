@@ -43,7 +43,12 @@ export function normalizarBusqueda(valor) {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ')
-    .replace(/\b(ashawanda|ashwaganda|ashuaganda|ashuawanda)\b/g, 'ashwagandha');
+    .replace(/\b(ashawanda|ashwaganda|ashuaganda|ashuawanda)\b/g, 'ashwagandha')
+    .replace(/\b(presio|prescio|prezio)\b/g, 'precio')
+    .replace(/\b(presios|prescios|prezios)\b/g, 'precios')
+    .replace(/\bbale\b/g, 'vale')
+    .replace(/\bsirbe\b/g, 'sirve')
+    .replace(/\b(k|ke)\b/g, 'que');
 }
 
 function tokensUtiles(valor) {
@@ -60,6 +65,37 @@ function tokensUtiles(valor) {
 function similitudToken(a, b) {
   if (a === b) return 1;
   if (a.length < 5 || b.length < 5) return 0;
+
+  // Quien vio un producto en video o escuchó su nombre puede cambiar, omitir o
+  // invertir una letra. Permitimos un error en palabras medianas y dos en las
+  // largas, conservando el resto del ranking para evitar falsos positivos.
+  const filas = Array.from({ length: a.length + 1 }, (_, i) => {
+    const fila = Array(b.length + 1).fill(0);
+    fila[0] = i;
+    return fila;
+  });
+  for (let j = 0; j <= b.length; j += 1) filas[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+      filas[i][j] = Math.min(
+        filas[i - 1][j] + 1,
+        filas[i][j - 1] + 1,
+        filas[i - 1][j - 1] + costo,
+      );
+      if (
+        i > 1 && j > 1
+        && a[i - 1] === b[j - 2]
+        && a[i - 2] === b[j - 1]
+      ) {
+        filas[i][j] = Math.min(filas[i][j], filas[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  const longitud = Math.max(a.length, b.length);
+  const tolerancia = longitud >= 9 ? 2 : 1;
+  if (filas[a.length][b.length] <= tolerancia) return 0.9;
+
   const pares = (texto) => {
     const resultado = [];
     for (let i = 0; i < texto.length - 1; i += 1) resultado.push(texto.slice(i, i + 2));
@@ -152,7 +188,7 @@ export function puntuarProducto(producto, consulta) {
       score += 30;
     } else if ([...productoTokens].some((candidato) => similitudToken(token, candidato) >= 0.86)) {
       tokensAproximados += 1;
-      score += 12;
+      score += 25;
     }
   }
 
@@ -167,7 +203,11 @@ export function seleccionarProducto(catalogo, consulta) {
   const primero = evaluados[0];
   if (!primero || primero.score < 70) return { estado: 'no_encontrado', candidatos: [] };
 
-  const cercanos = evaluados.filter((item) => primero.score - item.score <= 30).slice(0, 3);
+  const coberturaPrimero = primero.tokensExactos + primero.tokensAproximados;
+  const cercanos = evaluados
+    .filter((item) => primero.score - item.score <= 30)
+    .filter((item) => item.tokensExactos + item.tokensAproximados === coberturaPrimero)
+    .slice(0, 3);
   if (!primero.exacto && cercanos.length > 1) {
     return { estado: 'ambiguo', candidatos: cercanos.map((item) => item.producto) };
   }
@@ -178,6 +218,34 @@ export function seleccionarProducto(catalogo, consulta) {
     candidatos: [primero.producto],
     confianza: primero.exacto ? 'exacta' : 'aproximada',
   };
+}
+
+export function seleccionarProductosCoincidentes(
+  catalogo,
+  consulta,
+  { excluirIds = [], limite = 10 } = {},
+) {
+  const excluidos = new Set(excluirIds.filter(Boolean));
+  const evaluados = (catalogo || [])
+    .map((producto) => puntuarProducto(producto, consulta))
+    .filter((item) => !excluidos.has(item.producto.id) && item.score >= 60)
+    .sort((a, b) => b.score - a.score);
+
+  if (!evaluados.length) return [];
+
+  // En consultas compuestas se prioriza la intención completa. Por ejemplo,
+  // "gomitas de vinagre de manzana" no debe traer todas las fichas que solo
+  // coincidan con la palabra genérica "gomitas".
+  const mayorCobertura = Math.max(
+    ...evaluados.map((item) => item.tokensExactos + item.tokensAproximados),
+  );
+  const relevantes = mayorCobertura >= 2
+    ? evaluados.filter(
+      (item) => item.tokensExactos + item.tokensAproximados === mayorCobertura,
+    )
+    : evaluados;
+
+  return relevantes.slice(0, limite).map((item) => item.producto);
 }
 
 export async function cargarCatalogo(fetchImpl = fetch) {
@@ -216,15 +284,14 @@ export async function buscarProducto(consulta, fetchImpl = fetch) {
 }
 
 export async function buscarProductosCoincidentes(consulta, { excluirIds = [], limite = 10 } = {}, fetchImpl = fetch) {
-  const excluidos = new Set(excluirIds.filter(Boolean));
   const catalogo = await cargarCatalogo(fetchImpl);
-  const candidatos = catalogo
-    .map((producto) => puntuarProducto(producto, consulta))
-    .filter((item) => !excluidos.has(item.producto.id) && item.score >= 60)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limite);
+  const candidatos = seleccionarProductosCoincidentes(
+    catalogo,
+    consulta,
+    { excluirIds, limite },
+  );
   const detalles = await Promise.all(
-    candidatos.map((item) => obtenerProductoPorId(item.producto.id, fetchImpl)),
+    candidatos.map((producto) => obtenerProductoPorId(producto.id, fetchImpl)),
   );
   return detalles.filter((producto) => producto && fichaApta(producto).apta);
 }
@@ -418,7 +485,7 @@ function beneficioPrincipal(valor) {
 export function detectarTema(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   const temas = [];
-  if (/\b(precio|cuanto|cuesta|vale|valor)\b/.test(texto)) temas.push('precio');
+  if (/\b(precio|precios|cuanto|cuesta|vale|valor)\b/.test(texto)) temas.push('precio');
   if (/\b(usar|usa|uso|tomar|toma|aplicar|aplica|dosis|preparar|prepara|preparo|mezclar|mezcla|disolver|disuelve)\b/.test(texto)) temas.push('uso');
   if (/\b(para que|sirve|beneficio|beneficios|ayuda)\b/.test(texto)) temas.push('beneficios');
   if (/\b(ingrediente|ingredientes|contiene|composicion)\b/.test(texto)) temas.push('composicion');

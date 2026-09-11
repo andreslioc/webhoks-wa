@@ -9,6 +9,7 @@ import {
   normalizarBusqueda,
   puntuarProducto,
   seleccionarProducto,
+  seleccionarProductosCoincidentes,
   seleccionarPorNecesidad,
   respuestaComparacionProductos,
   respuestaProductosPorNecesidad,
@@ -98,6 +99,71 @@ test('pide aclaracion cuando una palabra coincide con varios productos', () => {
   const resultado = seleccionarProducto(catalogo, 'Quiero consultar el magnesio');
   assert.equal(resultado.estado, 'ambiguo');
   assert.equal(resultado.candidatos.length, 2);
+});
+
+test('una consulta compuesta no devuelve productos que solo coinciden con el formato generico', () => {
+  const productos = [
+    {
+      id: 'apple',
+      name: 'Organic Apple Cider Vinegar Gummies',
+      brand: 'Nature Health',
+      keywords: ['gomitas de vinagre de manzana', 'apple cider vinegar'],
+    },
+    {
+      id: 'weight',
+      name: 'Thermogenic Fat Burner Gummies',
+      brand: 'Fit Labs',
+      keywords: ['gomitas para control de peso'],
+    },
+    {
+      id: 'women',
+      name: 'MultiGummies for Women',
+      brand: 'Daily Health',
+      keywords: ['gomitas multivitamínicas'],
+    },
+  ];
+
+  const resultado = seleccionarProductosCoincidentes(
+    productos,
+    '¿Tienen gomitas de vinagre de manzana y a qué precio?',
+  );
+
+  assert.deepEqual(resultado.map((producto) => producto.id), ['apple']);
+
+  const seleccion = seleccionarProducto(
+    productos,
+    '¿Tienen gomitas de vinagre de manzana y a qué precio?',
+  );
+  assert.equal(seleccion.estado, 'encontrado');
+  assert.equal(seleccion.producto.id, 'apple');
+});
+
+test('encuentra una referencia aunque el cliente escriba varias palabras con errores', () => {
+  const productos = [
+    {
+      id: 'apple',
+      name: 'Organic Apple Cider Vinegar Gummies',
+      keywords: ['gomitas de vinagre de manzana'],
+    },
+    {
+      id: 'women',
+      name: 'MultiGummies for Women',
+      keywords: ['gomitas multivitamínicas'],
+    },
+  ];
+
+  const resultado = seleccionarProducto(
+    productos,
+    '¿Tienen gomitaz de binagre de mansana?',
+  );
+
+  assert.equal(resultado.estado, 'encontrado');
+  assert.equal(resultado.producto.id, 'apple');
+  assert.deepEqual(
+    detectarTema('¿A ke presio tienen las gomitaz de binagre de mansana?'),
+    ['precio'],
+  );
+  assert.deepEqual(detectarTema('¿Para ke sirbe?'), ['beneficios']);
 });
 
 test('rechaza fichas de demostracion aunque tengan fecha de verificacion', () => {

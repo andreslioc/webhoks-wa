@@ -200,6 +200,15 @@ function respuestaHumano(motivo, extra = {}) {
   };
 }
 
+function ultimoMensajeCliente(mensaje, tipoMensaje = '') {
+  const partes = String(mensaje || '')
+    .split(/\r?\n/)
+    .map((parte) => parte.trim())
+    .filter(Boolean);
+  if (partes.length) return partes.at(-1);
+  return tipoMensaje ? `[${tipoMensaje} recibido]` : '';
+}
+
 function elegirVariante(variantes, semilla = '') {
   let hash = 0;
   for (const caracter of String(semilla)) hash = ((hash << 5) - hash + caracter.charCodeAt(0)) | 0;
@@ -455,12 +464,15 @@ gemini.post('/gemini', async (req, res) => {
 
   const entrada = leerEntrada(req.body);
   if (TIPOS_MULTIMEDIA.has(entrada.tipoMensaje)) {
-    return res.json(respuestaHumano('contenido_multimedia'));
+    return res.json(respuestaHumano('contenido_multimedia', {
+      ultimoMensaje: ultimoMensajeCliente(entrada.mensaje, entrada.tipoMensaje),
+    }));
   }
   if (!entrada.mensaje) {
     return res.status(400).json({ ok: false, error: 'falta mensaje' });
   }
 
+  let mensajeProcesado = entrada.mensaje;
   try {
     let agrupacion;
     try {
@@ -472,6 +484,7 @@ gemini.post('/gemini', async (req, res) => {
     }
 
     const mensaje = agrupacion.mensaje;
+    mensajeProcesado = mensaje;
     const local = reglaLocal(mensaje, entrada.conversationId || mensaje);
     if (local) {
       return res.json({
@@ -702,12 +715,15 @@ gemini.post('/gemini', async (req, res) => {
       });
     }
     if (busqueda.estado !== 'encontrado' || !busqueda.producto) {
-      return res.json(respuestaHumano('producto_no_encontrado'));
+      return res.json(respuestaHumano('producto_no_encontrado', {
+        ultimoMensaje: ultimoMensajeCliente(mensaje),
+      }));
     }
 
     const aptitud = fichaApta(busqueda.producto);
     if (!aptitud.apta) {
       return res.json(respuestaHumano(aptitud.motivo, {
+        ultimoMensaje: ultimoMensajeCliente(mensaje),
         producto: { id: busqueda.producto.id, name: busqueda.producto.name, sku: busqueda.producto.sku },
       }));
     }
@@ -716,12 +732,17 @@ gemini.post('/gemini', async (req, res) => {
     const temas = detectarTema(mensaje);
     if (temas.length === 1 && temas[0] === 'precio') {
       if (!Number.isFinite(Number(busqueda.producto.price_cop))) {
-        return res.json(respuestaHumano('precio_no_disponible'));
+        return res.json(respuestaHumano('precio_no_disponible', {
+          ultimoMensaje: ultimoMensajeCliente(mensaje),
+        }));
       }
+      const marca = String(busqueda.producto.brand || '').trim();
+      const incluirMarca = marca
+        && !normalizarBusqueda(busqueda.producto.name).includes(normalizarBusqueda(marca));
       return res.json({
         ok: true,
         accion: 'responder',
-        respuesta: `El precio de ${nombreWhatsApp(busqueda.producto.name)} es ${precioCop(busqueda.producto.price_cop)}. ¿Qué más te gustaría saber sobre este producto?`,
+        respuesta: `El precio de ${nombreWhatsApp(busqueda.producto.name)}${incluirMarca ? ` de la marca ${marca}` : ''} es ${precioCop(busqueda.producto.price_cop)}. ¿Qué más te gustaría saber sobre este producto?`,
         motivo: 'precio_verificado',
         usoGemini: false,
         notificarAsesor: false,
@@ -744,6 +765,7 @@ gemini.post('/gemini', async (req, res) => {
       ok: true,
       ...resultado,
       respuesta: humano ? '' : asegurarInvitacionFinal(resultado.respuesta, mensaje),
+      ...(humano ? { ultimoMensaje: ultimoMensajeCliente(mensaje) } : {}),
       usoGemini: true,
       notificarAsesor: humano,
       producto: { id: busqueda.producto.id, name: busqueda.producto.name, sku: busqueda.producto.sku },
@@ -755,6 +777,10 @@ gemini.post('/gemini', async (req, res) => {
     });
   } catch (error) {
     console.error('No se pudo consultar Gemini:', error.message);
-    return res.json(respuestaHumano('error_interno', { degradado: true, error: error.message }));
+    return res.json(respuestaHumano('error_interno', {
+      ultimoMensaje: ultimoMensajeCliente(mensajeProcesado),
+      degradado: true,
+      error: error.message,
+    }));
   }
 });
