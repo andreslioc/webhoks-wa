@@ -11,6 +11,7 @@ import {
   fichaApta,
   normalizarBusqueda,
   obtenerProductoPorId,
+  respuestaComparacionProductos,
   respuestaProductosPorNecesidad,
   respuestaListaProductos,
 } from './products.js';
@@ -69,10 +70,15 @@ export function leerEntrada(datos = {}) {
     datos.leadResponse?.body?.interactionId,
     variables.leadResponse?.body?.interactionId,
   );
+  const respuestaAnterior = datos.leadResponse?.body || variables.leadResponse?.body || {};
+  const opcionesPrevias = Array.isArray(respuestaAnterior.candidatos)
+    ? respuestaAnterior.candidatos.filter((producto) => producto?.id).slice(0, 5)
+    : [];
 
   return {
     mensaje: mensaje?.slice(0, MAX_MESSAGE_LENGTH),
     previousInteractionId: previa && !previa.includes('{{') ? previa : undefined,
+    opcionesPrevias,
     tipoMensaje: primerTexto(
       datos.messageType,
       datos.tipoMensaje,
@@ -241,6 +247,11 @@ function esConsultaAlternativas(mensaje) {
   return /\b(otro|otros|otra|otras|mas opciones|alguno mas|alguna mas)\b/.test(texto);
 }
 
+function esComparacionOpciones(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  return /\b(diferencia|diferencias|comparar|comparacion|comparaciones|entre ambos|entre los dos)\b/.test(texto);
+}
+
 function pideListaProductos(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   return /\b(productos|opciones|cuales)\b/.test(texto)
@@ -308,6 +319,31 @@ gemini.post('/gemini', async (req, res) => {
         mensajesAgrupados: agrupacion.mensajesAgrupados,
         agrupacionEstado: agrupacion.motivo || 'activa',
       });
+    }
+
+    if (esComparacionOpciones(mensaje)) {
+      let opciones = await leerOpcionesRecordadas(entrada);
+      if (opciones.length < 2) opciones = entrada.opcionesPrevias;
+      if (opciones.length >= 2) {
+        const productos = (await Promise.all(
+          opciones.map((opcion) => obtenerProductoPorId(opcion.id)),
+        )).filter((producto) => producto && fichaApta(producto).apta);
+        if (productos.length >= 2) {
+          const respuesta = respuestaComparacionProductos(productos);
+          if (respuesta) {
+            return res.json({
+              ok: true,
+              accion: 'responder',
+              respuesta,
+              motivo: 'comparacion_verificada_productos',
+              usoGemini: false,
+              notificarAsesor: false,
+              productos: productos.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
+              continuidad: true,
+            });
+          }
+        }
+      }
     }
 
     if (esConsultaAlternativas(mensaje)) {
@@ -398,7 +434,7 @@ gemini.post('/gemini', async (req, res) => {
       }
     }
 
-    if (busqueda.estado === 'no_encontrado' && esSeguimiento(mensaje)) {
+    if (busqueda.estado === 'no_encontrado') {
       const recordado = await leerProductoRecordado(entrada);
       if (recordado?.id) {
         const producto = await obtenerProductoPorId(recordado.id);

@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   construirContextoProducto,
+  construirContextoComparacion,
   detectarTema,
   detectarNecesidad,
   fichaApta,
   puntuarProducto,
   seleccionarProducto,
   seleccionarPorNecesidad,
+  respuestaComparacionProductos,
   respuestaListaProductos,
 } from '../src/products.js';
 import { indiceOpcion } from '../src/product-memory.js';
@@ -119,6 +121,55 @@ test('el contexto de precio no incluye campos extensos de uso', () => {
   assert.equal(contexto.precio_cop, 60000);
   assert.equal(contexto.modo_uso, undefined);
   assert.equal(contexto.resumen_asesor, undefined);
+});
+
+test('reconoce una pregunta de preparación como uso del producto', () => {
+  assert.deepEqual(detectarTema('¿Cómo se prepara?'), ['uso']);
+});
+
+test('usa live_ready cuando la preparación verificada no está en usage_mode', () => {
+  const producto = {
+    id: '1', name: 'MaxCalm', full_answer: {}, usage_mode: '',
+    live_ready: ['Disuelve dos cucharaditas en agua caliente y completa con agua al gusto.'],
+    claims_allowed: [], claims_forbidden: [],
+  };
+  const { contexto } = construirContextoProducto(producto, '¿Cómo se prepara?');
+  assert.deepEqual(contexto.respuestas_verificadas, producto.live_ready);
+});
+
+test('construye una comparacion de varias fichas verificadas', () => {
+  const productos = [
+    {
+      id: '1', name: 'MaxCalm saborizado', presentation: '16 oz', price_cop: 145600,
+      full_answer: { different: 'Sabor frambuesa-limón.' }, claims_allowed: [], claims_forbidden: [],
+    },
+    {
+      id: '2', name: 'MaxCalm sin sabor', presentation: '16 oz', price_cop: 143260,
+      full_answer: { different: 'Presentación neutra sin sabor.' }, claims_allowed: [], claims_forbidden: [],
+    },
+  ];
+  assert.deepEqual(detectarTema('¿Qué diferencias tienen?'), ['diferencias']);
+  const contexto = construirContextoComparacion(productos, '¿Qué diferencias tienen?');
+  assert.equal(contexto.length, 2);
+  assert.equal(contexto[0].precio_venta_cop, 145600);
+  assert.match(contexto[1].diferencia, /sin sabor/);
+});
+
+test('responde comparaciones solo con diferencias y precios de las fichas', () => {
+  const respuesta = respuestaComparacionProductos([
+    {
+      name: 'MaxCalm saborizado', price_cop: 145600,
+      full_answer: { different: 'Sabor frambuesa-limón y mezcla de citrato y glicinato.' },
+    },
+    {
+      name: 'MaxCalm sin sabor', price_cop: 143260,
+      full_answer: { different: 'Presentación neutra sin sabor y mezcla de citrato y glicinato.' },
+    },
+  ]);
+  assert.match(respuesta, /Sabor frambuesa-limón/);
+  assert.match(respuesta, /Presentación neutra sin sabor/);
+  assert.match(respuesta, /145[\.\s]600/);
+  assert.match(respuesta, /143[\.\s]260/);
 });
 
 test('reconoce bajar de peso como una busqueda por necesidad', () => {

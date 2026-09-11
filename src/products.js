@@ -217,15 +217,18 @@ export async function buscarProductosCoincidentes(consulta, { excluirIds = [], l
   return detalles.filter((producto) => producto && fichaApta(producto).apta);
 }
 
+function precioVentaCop(valor) {
+  const precio = Number(valor);
+  if (!Number.isFinite(precio)) return null;
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency', currency: 'COP', maximumFractionDigits: 0,
+  }).format(precio);
+}
+
 export function respuestaListaProductos(productos, { adicionales = false } = {}) {
   const lineas = productos.map((producto) => {
     const detalle = producto.presentation || producto.format || producto.brand;
-    const precio = Number(producto.price_cop);
-    const precioVenta = Number.isFinite(precio)
-      ? new Intl.NumberFormat('es-CO', {
-        style: 'currency', currency: 'COP', maximumFractionDigits: 0,
-      }).format(precio)
-      : null;
+    const precioVenta = precioVentaCop(producto.price_cop);
     return `• ${producto.name}${detalle ? `: ${detalle}` : ''}${precioVenta ? ` — ${precioVenta}` : ''}.`;
   });
   const todosRestringidos = productos.length > 0 && productos.every((producto) => {
@@ -351,12 +354,49 @@ export function detectarTema(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   const temas = [];
   if (/\b(precio|cuanto|cuesta|vale|valor)\b/.test(texto)) temas.push('precio');
-  if (/\b(usar|usa|uso|tomar|toma|aplicar|aplica|dosis)\b/.test(texto)) temas.push('uso');
+  if (/\b(usar|usa|uso|tomar|toma|aplicar|aplica|dosis|preparar|prepara|preparo|mezclar|mezcla|disolver|disuelve)\b/.test(texto)) temas.push('uso');
   if (/\b(para que|sirve|beneficio|beneficios|ayuda)\b/.test(texto)) temas.push('beneficios');
   if (/\b(ingrediente|ingredientes|contiene|composicion)\b/.test(texto)) temas.push('composicion');
-  if (/\b(diferencia|comparar|comparacion|mejor)\b/.test(texto)) temas.push('diferencias');
+  if (/\b(diferencia|diferencias|comparar|comparacion|comparaciones|mejor)\b/.test(texto)) temas.push('diferencias');
   if (/\b(seguro|precaucion|contraindicacion|advertencia|embarazo|medicamento)\b/.test(texto)) temas.push('seguridad');
   return temas.length ? temas : ['general'];
+}
+
+export function construirContextoComparacion(productos, mensaje) {
+  return productos.map((producto) => {
+    const { contexto } = construirContextoProducto(producto, mensaje);
+    return {
+      ...contexto,
+      precio_venta_cop: producto.price_cop,
+    };
+  });
+}
+
+export function respuestaComparacionProductos(productos) {
+  if (!Array.isArray(productos) || productos.length < 2) return null;
+  let hayDatosVerificados = false;
+  const lineas = productos.map((producto) => {
+    const full = producto.full_answer || {};
+    const diferenciadores = Array.isArray(producto.differentiators)
+      ? producto.differentiators.join('; ')
+      : String(producto.differentiators || '').trim();
+    const diferencia = String(full.different || diferenciadores || '').trim();
+    const presentacion = String(producto.presentation || producto.format || '').trim();
+    const precio = precioVentaCop(producto.price_cop);
+    if (diferencia || presentacion || precio) hayDatosVerificados = true;
+    const detalles = [
+      diferencia,
+      !diferencia && presentacion ? `Presentación: ${presentacion}` : '',
+      precio ? `Precio total: ${precio}` : '',
+    ].filter(Boolean).map((texto) => texto.replace(/[.\s]+$/, ''));
+    return `• ${producto.name}: ${detalles.join('. ')}.`;
+  });
+  if (!hayDatosVerificados) return null;
+  return [
+    'Estas son las diferencias registradas en sus fichas:',
+    ...lineas,
+    '¿Cuál de las dos presentaciones prefieres?',
+  ].join('\n');
 }
 
 export function construirContextoProducto(producto, mensaje) {
@@ -378,20 +418,29 @@ export function construirContextoProducto(producto, mensaje) {
     contexto.precauciones = recortar(producto.precautions);
     contexto.contraindicaciones = recortar(producto.contraindications);
     contexto.advertencia = recortar(full.warning);
+    if (!contexto.modo_uso) contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
   }
   if (temas.includes('beneficios')) {
     contexto.para_que = recortar(full.what_for);
     contexto.beneficios = recortar(full.benefits || producto.benefits);
+    if (!contexto.para_que && !contexto.beneficios) contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
   }
-  if (temas.includes('composicion')) contexto.ingredientes_activos = recortar(producto.active_ingredients);
+  if (temas.includes('composicion')) {
+    contexto.ingredientes_activos = recortar(producto.active_ingredients);
+    if (!contexto.ingredientes_activos) contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
+  }
   if (temas.includes('diferencias')) {
     contexto.diferencia = recortar(full.different);
     contexto.comparacion = recortar(producto.vs_similares);
+    if (!contexto.diferencia && !contexto.comparacion) contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
   }
   if (temas.includes('seguridad')) {
     contexto.precauciones = recortar(producto.precautions);
     contexto.contraindicaciones = recortar(producto.contraindications);
     contexto.advertencia = recortar(full.warning);
+    if (!contexto.precauciones && !contexto.contraindicaciones && !contexto.advertencia) {
+      contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
+    }
   }
   if (temas.includes('general')) {
     contexto.resumen_asesor = recortar(producto.advisor_summary);
