@@ -46,6 +46,7 @@ async function redis(command) {
 export async function recordarProducto({ conversationId, accountId, producto, consulta }) {
   const key = clave(conversationId, accountId);
   if (!key || !producto?.id) return false;
+  const optionsKey = claveOpciones(conversationId, accountId);
   const valor = JSON.stringify({
     id: producto.id,
     name: producto.name,
@@ -53,8 +54,12 @@ export async function recordarProducto({ conversationId, accountId, producto, co
     consulta: String(consulta || '').slice(0, 500),
     guardadoEn: Date.now(),
   });
+  memoria.delete(optionsKey);
   memoria.set(key, { valor, venceEn: Date.now() + ttlSegundos() * 1_000 });
-  if (redisConfig()) await redis(['SET', key, valor, 'EX', String(ttlSegundos())]);
+  if (redisConfig()) {
+    await redis(['DEL', optionsKey]);
+    await redis(['SET', key, valor, 'EX', String(ttlSegundos())]);
+  }
   return true;
 }
 
@@ -76,9 +81,16 @@ export async function leerProductoRecordado({ conversationId, accountId }) {
 export async function recordarOpciones({ conversationId, accountId, productos }) {
   const key = claveOpciones(conversationId, accountId);
   if (!key || !Array.isArray(productos) || !productos.length) return false;
-  const valor = JSON.stringify(productos.slice(0, 10).map(({ id, name, sku }) => ({ id, name, sku })));
+  const productKey = clave(conversationId, accountId);
+  const valor = JSON.stringify(productos.slice(0, 10).map(({ id, name, sku, price_cop }) => ({
+    id, name, sku, price_cop,
+  })));
+  memoria.delete(productKey);
   memoria.set(key, { valor, venceEn: Date.now() + 2 * 60 * 60 * 1_000 });
-  if (redisConfig()) await redis(['SET', key, valor, 'EX', String(2 * 60 * 60)]);
+  if (redisConfig()) {
+    await redis(['DEL', productKey]);
+    await redis(['SET', key, valor, 'EX', String(2 * 60 * 60)]);
+  }
   return true;
 }
 

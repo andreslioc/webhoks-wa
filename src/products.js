@@ -535,7 +535,7 @@ function beneficioPrincipal(valor) {
 export function detectarTema(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   const temas = [];
-  if (/\b(precio|precios|cuanto|cuesta|vale|valor)\b/.test(texto)) temas.push('precio');
+  if (/\b(precio|precios|cuanto|cuesta|vale|valor|a como|cuanto sale|cuanto salen)\b/.test(texto)) temas.push('precio');
   if (/\b(usar(?:lo|la|los|las)?|usa|uso|tomar(?:lo|la|los|las)?|toma|aplicar(?:lo|la|los|las)?|aplica|dosis|preparar(?:lo|la|los|las)?|prepara|preparo|mezclar(?:lo|la|los|las)?|mezcla|disolver(?:lo|la|los|las)?|disuelve)\b/.test(texto)) temas.push('uso');
   if (/\b(para que|sirve|beneficio|beneficios|ayuda)\b/.test(texto)) temas.push('beneficios');
   if (/\b(ingrediente|ingredientes|contiene|contienen|composicion)\b/.test(texto)) temas.push('composicion');

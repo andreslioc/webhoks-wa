@@ -19,7 +19,11 @@ import {
 } from '../src/products.js';
 import {
   indiceOpcion,
+  leerOpcionesRecordadas,
+  leerProductoRecordado,
   leerProductosCatalogoMostrados,
+  recordarOpciones,
+  recordarProducto,
   recordarProductosCatalogoMostrados,
 } from '../src/product-memory.js';
 
@@ -239,6 +243,28 @@ test('recuerda acumulativamente los productos generales ya mostrados', async () 
   assert.deepEqual(await leerProductosCatalogoMostrados(contexto), ['uno', 'dos', 'tres']);
 });
 
+test('la memoria conserva solo la referencia activa entre producto y lista', async () => {
+  const contexto = { conversationId: `active-${Date.now()}`, accountId: 'test' };
+  const producto = { id: 'individual', name: 'Producto individual', sku: 'IND-1' };
+  const opciones = [
+    { id: 'uno', name: 'Opción uno', sku: 'OP-1', price_cop: 50000 },
+    { id: 'dos', name: 'Opción dos', sku: 'OP-2', price_cop: 70000 },
+  ];
+
+  await recordarProducto({ ...contexto, producto, consulta: 'producto individual' });
+  assert.equal((await leerProductoRecordado(contexto)).id, 'individual');
+  assert.deepEqual(await leerOpcionesRecordadas(contexto), []);
+
+  await recordarOpciones({ ...contexto, productos: opciones });
+  assert.equal(await leerProductoRecordado(contexto), null);
+  assert.deepEqual((await leerOpcionesRecordadas(contexto)).map(({ id }) => id), ['uno', 'dos']);
+  assert.deepEqual((await leerOpcionesRecordadas(contexto)).map(({ price_cop }) => price_cop), [50000, 70000]);
+
+  await recordarProducto({ ...contexto, producto, consulta: 'el primero' });
+  assert.deepEqual(await leerOpcionesRecordadas(contexto), []);
+  assert.equal((await leerProductoRecordado(contexto)).id, 'individual');
+});
+
 test('rechaza fichas de demostracion aunque tengan fecha de verificacion', () => {
   const resultado = fichaApta({
     verified_at: new Date().toISOString(),
@@ -272,6 +298,8 @@ test('reconoce una pregunta de preparación como uso del producto', () => {
   assert.deepEqual(detectarTema('¿Qué sabor tiene y de qué marca es?'), ['caracteristicas']);
   assert.deepEqual(detectarTema('¿De qué color exacto son?'), ['caracteristicas']);
   assert.deepEqual(detectarTema('¿Cuántas trae?'), ['presentacion']);
+  assert.deepEqual(detectarTema('tienen gomitas de vinagre de manzana a como'), ['precio']);
+  assert.deepEqual(detectarTema('cuanto salen las gomitas'), ['precio']);
 });
 
 test('usa live_ready cuando la preparación verificada no está en usage_mode', () => {

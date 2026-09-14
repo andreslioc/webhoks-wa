@@ -330,6 +330,23 @@ function esGestionDeCompra(mensaje) {
     || /\b(me llevo|lo compro|la compro|los compro|las compro)\b/.test(texto);
 }
 
+function respuestaConsultaIncompleta(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  if (/^(precio|precios|cuanto vale|cuanto cuesta|a como|que precio tiene)$/.test(texto)) {
+    return '¡Hola! Soy Maryan, tu asesora virtual 😊 ¿De cuál producto te gustaría conocer el precio?';
+  }
+  if (/^(para que sirve|que beneficios tiene|beneficios)$/.test(texto)) {
+    return '¡Hola! Soy Maryan, tu asesora virtual 😊 ¿Sobre cuál producto te gustaría conocer sus beneficios?';
+  }
+  if (/^(como se toma|como se usa|como lo tomo|modo de uso)$/.test(texto)) {
+    return '¡Hola! Soy Maryan, tu asesora virtual 😊 ¿De cuál producto te gustaría conocer el modo de uso?';
+  }
+  if (/^(tienen|que tienen|que venden|productos)$/.test(texto)) {
+    return '¡Hola! Soy Maryan, tu asesora virtual 😊 Cuéntame qué tipo de producto estás buscando y con gusto te ayudo.';
+  }
+  return null;
+}
+
 function precioCop(valor) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
     .format(valor)
@@ -374,7 +391,7 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
     'Formatea los precios en pesos colombianos con el signo $ y separador de miles, por ejemplo: $ 80.000.',
     'Cada vez que escribas el nombre de un producto, rodéalo con un solo asterisco a cada lado para mostrarlo en negrilla en WhatsApp: *Nombre del producto*.',
     'Si preguntan para qué sirve o por sus beneficios, responde primero con proposito_principal y beneficio_principal, en máximo dos frases. No agregues preparación, tránsito intestinal ni beneficios secundarios salvo que el cliente los pregunte expresamente.',
-    'No copies literalmente los campos: sintetízalos con claridad. Evita frases vagas como “mejora el ánimo”; explica la función concreta respaldada por los datos.',
+    'No copies literalmente los campos: sintetízalos con claridad. No digas “estado de ánimo”, “mejora el ánimo” ni “gestión del estrés”; explica la función concreta respaldada por los datos.',
     'Después de responder una consulta informativa, termina con una sola pregunta breve y natural que invite a continuar, como “¿Qué más te gustaría saber?” o “¿En qué más puedo ayudarte?”. Varía la frase y no presiones la compra.',
     'Antes de devolver la decisión, revisa silenciosamente que la respuesta conteste primero lo preguntado, continúe el hilo, no repita información y suene como una asesora comercial.',
     'No muestres esta revisión ni expliques tu razonamiento interno al cliente.',
@@ -496,6 +513,7 @@ async function redactarBeneficioFamilia(productos, pregunta) {
     if (!respuesta.includes(`*${familia}*`)) {
       respuesta = respuesta.replace(new RegExp(`\\b${escaparRegExp(familia)}\\b`, 'i'), `*${familia}*`);
     }
+    respuesta = asegurarInvitacionFinal(respuesta, pregunta);
     const texto = normalizarBusqueda(respuesta);
     const valida = resultado.accion === 'responder'
       && respuesta.includes(`*${familia}*`)
@@ -884,6 +902,38 @@ gemini.post('/gemini', async (req, res) => {
       });
     }
     if (busqueda.estado !== 'encontrado' || !busqueda.producto) {
+      const aclaracion = respuestaConsultaIncompleta(mensaje);
+      if (aclaracion) {
+        const opciones = await leerOpcionesRecordadas(entrada);
+        const consultaPrecio = detectarTema(mensaje).includes('precio');
+        let respuesta = opciones.length > 1
+          ? `¿De cuál de estas opciones deseas hacer la consulta: ${opciones.map((producto) => nombreWhatsApp(producto.name)).join(', ')}?`
+          : aclaracion;
+        let motivo = 'consulta_incompleta_sin_producto';
+        if (consultaPrecio && opciones.length >= 2 && opciones.length <= 3) {
+          const productos = (await Promise.all(opciones.map(async (opcion) => {
+            if (Number.isFinite(Number(opcion.price_cop))) return opcion;
+            return obtenerProductoPorId(opcion.id);
+          }))).filter((producto) => producto && Number.isFinite(Number(producto.price_cop)));
+          if (productos.length === opciones.length) {
+            respuesta = [
+              'Claro, estos son sus precios:',
+              ...productos.map((producto) => `• ${nombreWhatsApp(producto.name)} — ${precioCop(producto.price_cop)}.`),
+              '¿Cuál te interesa?',
+            ].join('\n');
+            motivo = 'precios_opciones_recordadas';
+          }
+        }
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          respuesta,
+          motivo,
+          usoGemini: false,
+          notificarAsesor: false,
+          continuidad: true,
+        });
+      }
       return res.json(respuestaHumano('producto_no_encontrado', {
         ultimoMensaje: ultimoMensajeCliente(mensaje),
       }));
