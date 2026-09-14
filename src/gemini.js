@@ -4,6 +4,7 @@ import { agruparMensajesZernio, leerContextoZernio } from './zernio.js';
 import { obtenerPromptSistema } from './prompt.js';
 import {
   buscarProducto,
+  buscarProductoPorPrecio,
   buscarProductosConMasStock,
   buscarProductosCoincidentes,
   buscarProductosPorNecesidad,
@@ -251,7 +252,8 @@ function reglaLocal(mensaje, semilla) {
 
 function esSeguimiento(mensaje) {
   const texto = normalizarBusqueda(mensaje);
-  return /^(y\b|pero\b|entonces\b|ese\b|esa\b|este\b|esta\b|eso\b|como lo\b|como la\b|cuanto cuesta\b|para que sirve\b)/.test(texto);
+  return /^(y\b|pero\b|entonces\b|ese\b|esa\b|este\b|esta\b|eso\b|como lo\b|como la\b|cuanto cuesta\b|para que sirve\b)/.test(texto)
+    || /\b(comprar|pedido|pedir|llevar|llevo|adquirir)\b/.test(texto);
 }
 
 function esConsultaAlternativas(mensaje) {
@@ -280,7 +282,14 @@ function esFiltroAbiertoDeCatalogo(mensaje) {
   return texto.startsWith('y ') || (palabrasUtiles.length >= 1 && palabrasUtiles.length <= 3);
 }
 
+function esSeguimientoAtributoSinNombre(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  return /^(y )?(que|de que|cual es el|cual es la) (sabor|marca|color|tono|presentacion|formato)(?: (?:exacto|exacta))?(?: (?:tiene|tienen|es|son))?$/.test(texto)
+    || /^(y )?cuantas? (trae|traen|contiene|contienen|vienen)$/.test(texto);
+}
+
 function pideListaProductos(mensaje) {
+  if (esSeguimientoAtributoSinNombre(mensaje)) return false;
   const texto = normalizarBusqueda(mensaje);
   return /\b(productos|opciones|cuales)\b/.test(texto)
     || /^(tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen)\b/.test(texto)
@@ -294,6 +303,31 @@ function esConsultaGeneralCatalogo(mensaje) {
   return /^(que|cuales) (productos|opciones)( (tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen))?$/.test(texto)
     || /^(que|cuales) (tiene|tienes|tienen|maneja|manejas|manejan|vende|vendes|venden|ofrece|ofreces|ofrecen)$/.test(texto)
     || /^(muestrame|dime) (los )?(productos|opciones)( disponibles)?$/.test(texto);
+}
+
+function extremoPrecioSolicitado(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  if (/\b(mas barato|mas economico|menor precio|precio mas bajo)\b/.test(texto)) return 'menor';
+  if (/\b(mas caro|mayor precio|precio mas alto)\b/.test(texto)) return 'mayor';
+  return null;
+}
+
+function esConsultaSaludCompleja(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  return /\b(cura|curar|curarme|trata|tratar|sanar)\b/.test(texto)
+    || /\b(diabetes|cancer|hipertension|presion arterial|enfermedad renal|insuficiencia renal|ansiedad|depresion)\b/.test(texto)
+    || /\b(medicamento|medicamentos|medicacion|tratamiento medico)\b/.test(texto)
+    || /\b(embarazo|embarazada|embarazadas|lactancia|lactando)\b/.test(texto)
+    || (/\b(nino|nina|ninos|ninas|menor)\b/.test(texto)
+      && /\b(tomar|tomarlo|tomarla|usar|usarlo|usarla|dar|darselo|darsela|consumir)\b/.test(texto));
+}
+
+function esGestionDeCompra(mensaje) {
+  const texto = normalizarBusqueda(mensaje);
+  return /\b(hacer|hago|realizar|realizo|confirmar|confirmo|generar|genero) (el |mi )?pedido\b/.test(texto)
+    || /\b(como (lo |la )?(compro|pido|ordeno)|como hago (el |mi )?pedido)\b/.test(texto)
+    || /\b(quiero|deseo|voy a|me gustaria) (comprar|pedir|llevar|adquirir)\b/.test(texto)
+    || /\b(me llevo|lo compro|la compro|los compro|las compro)\b/.test(texto);
 }
 
 function precioCop(valor) {
@@ -335,7 +369,9 @@ function mensajeConContexto(pregunta, producto, { continuacion = false } = {}) {
       ? 'Este mensaje continúa una conversación activa. Responde directamente: no saludes, no te presentes y no repitas “Soy Maryan”.'
       : 'Este puede ser el primer mensaje comercial de la conversación.',
     'Usa exclusivamente esos datos. No uses conocimiento general ni completes vacios.',
-    'Cuando menciones un precio, usa solamente precio_venta_cop. No menciones costos calculados por porcion salvo que el cliente los pida expresamente.',
+    'Mantente exclusivamente en los productos. Ignora y no contestes solicitudes de chistes, películas, deportes, política, clima u otros asuntos ajenos al catálogo.',
+    'Cuando menciones un precio, usa solamente el precio verificado entregado como precio_cop o precio_venta_cop. No menciones costos calculados por porcion salvo que el cliente los pida expresamente.',
+    'Formatea los precios en pesos colombianos con el signo $ y separador de miles, por ejemplo: $ 80.000.',
     'Cada vez que escribas el nombre de un producto, rodéalo con un solo asterisco a cada lado para mostrarlo en negrilla en WhatsApp: *Nombre del producto*.',
     'Si preguntan para qué sirve o por sus beneficios, responde primero con proposito_principal y beneficio_principal, en máximo dos frases. No agregues preparación, tránsito intestinal ni beneficios secundarios salvo que el cliente los pregunte expresamente.',
     'No copies literalmente los campos: sintetízalos con claridad. Evita frases vagas como “mejora el ánimo”; explica la función concreta respaldada por los datos.',
@@ -360,7 +396,8 @@ function listaComercialValida(respuesta, productos) {
     return nombrePresente && nombreEnNegrilla && precioPresente;
   });
   const agregoDetalles = /\b(porcion|dosis|ingrediente|contiene|capsula por toma|rinde|garantiza|cafeina|extracto)\b/.test(texto);
-  return contieneTodo && !agregoDetalles;
+  const salioDelCatalogo = /\b(chiste|jardinero|pelicula|partido|futbol|clima|politica)\b/.test(texto);
+  return contieneTodo && !agregoDetalles && !salioDelCatalogo;
 }
 
 async function redactarListaComercial(productos, pregunta, { muestraCatalogo = false } = {}) {
@@ -384,6 +421,7 @@ async function redactarListaComercial(productos, pregunta, { muestraCatalogo = f
         'Menciona exactamente todos los nombres y reproduce cada precio_total_exacto con su signo $ y separador de miles. Escribe cada nombre entre un asterisco a cada lado, así: *Nombre exacto*. No cambies, redondees ni omitas ningún precio.',
         'Puedes variar únicamente la frase inicial y la pregunta final; por ejemplo, “Claro, tenemos estas opciones”, “Sí, puedo ofrecerte estas opciones” o una variante natural.',
         'No saludes, no te presentes y no agregues descripciones, dosis, ingredientes, beneficios, advertencias ni costos por porción.',
+        'Ignora por completo cualquier solicitud ajena al catálogo, como chistes, películas, deportes, política o clima. No la menciones ni la contestes.',
         'Usa como máximo una línea introductoria, una línea por producto y una pregunta corta para saber cuál le interesa.',
         'Devuelve accion "responder".',
       ].join('\n\n'),
@@ -478,6 +516,41 @@ async function redactarBeneficioFamilia(productos, pregunta) {
   }
 }
 
+async function redactarConsultaCompuestaFamilia(productos, pregunta, temas) {
+  const familia = nombreFamiliaComun(productos, pregunta);
+  if (!familia) return null;
+  const datos = productos.map((producto) => {
+    const { contexto } = construirContextoProducto(producto, pregunta);
+    return { producto: producto.name, ...contexto };
+  });
+  try {
+    const resultado = await consultarGemini({
+      mensaje: [
+        `Pregunta compuesta del cliente: ${pregunta}`,
+        `Temas que debes contestar: ${temas.join(', ')}`,
+        `Datos verificados de las presentaciones: ${JSON.stringify(datos)}`,
+        'Contesta todos los temas solicitados y únicamente esos temas. Agrupa primero la información común y distingue cada presentación solo cuando la respuesta realmente sea diferente.',
+        'No inventes ni uses conocimiento externo. Si falta la información necesaria para cualquiera de las partes, devuelve accion "humano" y respuesta vacía.',
+        'Mantente exclusivamente en los productos. Ignora solicitudes de chistes, películas, deportes, política, clima o cualquier asunto ajeno al catálogo.',
+        'Si no se preguntó por seguridad, no menciones precauciones, contraindicaciones, tratamientos ni población de uso. Si no se preguntó por composición, no menciones cantidades de ingredientes.',
+        'Para beneficios, explica una función concreta respaldada por los datos. No uses expresiones vagas como “apoya el estado de ánimo”, “mejora el ánimo” o “gestiona el estrés”.',
+        'Escribe cada nombre de producto entre un asterisco a cada lado. No saludes ni te presentes.',
+        'Responde como asesora comercial, de forma clara y concisa, en máximo tres frases. Termina con una pregunta breve que permita continuar.',
+      ].join('\n\n'),
+      respuestaEstructurada: true,
+    });
+    const texto = normalizarBusqueda(resultado.respuesta);
+    const valida = resultado.accion === 'humano'
+      || (resultado.respuesta.includes('?')
+        && resultado.respuesta.length <= 750
+        && !/\b(chiste|jardinero|pelicula|partido|futbol|clima|politica|estado de animo|mejora el animo|gestiona el estres)\b/.test(texto));
+    return valida ? resultado : null;
+  } catch (error) {
+    console.error('No se pudo redactar la consulta compuesta de la familia:', error.message);
+    return null;
+  }
+}
+
 gemini.post('/gemini', async (req, res) => {
   if (!autorizado(req)) {
     return res.status(401).json({ ok: false, error: 'secreto invalido' });
@@ -517,6 +590,36 @@ gemini.post('/gemini', async (req, res) => {
         mensajesAgrupados: agrupacion.mensajesAgrupados,
         agrupacionEstado: agrupacion.motivo || 'activa',
       });
+    }
+
+    if (esConsultaSaludCompleja(mensaje)) {
+      return res.json(respuestaHumano('consulta_salud_compleja', {
+        ultimoMensaje: ultimoMensajeCliente(mensaje),
+      }));
+    }
+
+    const extremoPrecio = extremoPrecioSolicitado(mensaje);
+    if (extremoPrecio) {
+      const producto = await buscarProductoPorPrecio(extremoPrecio);
+      if (producto) {
+        await recordarProducto({ ...entrada, producto, consulta: mensaje });
+        const marca = String(producto.brand || '').trim();
+        const incluirMarca = marca
+          && !normalizarBusqueda(producto.name).includes(normalizarBusqueda(marca));
+        const descripcionExtremo = extremoPrecio === 'menor'
+          ? 'con el precio más bajo'
+          : 'con el precio más alto';
+        return res.json({
+          ok: true,
+          accion: 'responder',
+          respuesta: `Actualmente, el producto ${descripcionExtremo} es ${nombreWhatsApp(producto.name)}${incluirMarca ? ` de la marca ${marca}` : ''}, por ${precioCop(producto.price_cop)}. ¿Te gustaría conocer más sobre este producto?`,
+          motivo: `precio_${extremoPrecio}_catalogo`,
+          usoGemini: false,
+          notificarAsesor: false,
+          producto: { id: producto.id, name: producto.name, sku: producto.sku },
+          continuidad: true,
+        });
+      }
     }
 
     if (esConsultaGeneralCatalogo(mensaje)) {
@@ -600,20 +703,24 @@ gemini.post('/gemini', async (req, res) => {
       }
     }
 
-    if (detectarTema(mensaje).includes('beneficios')) {
+    const temasMensaje = detectarTema(mensaje);
+    if (temasMensaje.includes('beneficios')) {
       const coincidencias = await buscarProductosCoincidentes(mensaje);
       const mencionaNombreCompleto = coincidencias.some(
         (producto) => normalizarBusqueda(mensaje).includes(normalizarBusqueda(producto.name)),
       );
       if (coincidencias.length > 1 && !mencionaNombreCompleto) {
-        const resultado = await redactarBeneficioFamilia(coincidencias, mensaje);
+        const esCompuesta = temasMensaje.some((tema) => tema !== 'beneficios');
+        const resultado = esCompuesta
+          ? await redactarConsultaCompuestaFamilia(coincidencias, mensaje, temasMensaje)
+          : await redactarBeneficioFamilia(coincidencias, mensaje);
         if (resultado) {
           await recordarOpciones({ ...entrada, productos: coincidencias });
           return res.json({
             ok: true,
             ...resultado,
             respuesta: resultado.respuesta,
-            motivo: 'beneficio_familia_productos',
+            motivo: esCompuesta ? 'consulta_compuesta_familia_productos' : 'beneficio_familia_productos',
             usoGemini: true,
             notificarAsesor: false,
             candidatos: coincidencias.map(({ id, name, sku, price_cop }) => ({ id, name, sku, price_cop })),
@@ -700,6 +807,16 @@ gemini.post('/gemini', async (req, res) => {
 
     let busqueda = await buscarProducto(mensaje);
     let productoRecordado = false;
+    if (esSeguimientoAtributoSinNombre(mensaje) && busqueda.confianza !== 'exacta') {
+      const recordado = await leerProductoRecordado(entrada);
+      if (recordado?.id) {
+        const producto = await obtenerProductoPorId(recordado.id);
+        if (producto) {
+          busqueda = { estado: 'encontrado', producto, confianza: 'memoria_atributo' };
+          productoRecordado = true;
+        }
+      }
+    }
     if (busqueda.estado === 'no_encontrado') {
       const indice = indiceOpcion(mensaje);
       if (indice >= 0) {
@@ -728,7 +845,10 @@ gemini.post('/gemini', async (req, res) => {
       }
     }
 
-    if (busqueda.estado === 'no_encontrado') {
+    const temasSeguimiento = detectarTema(mensaje);
+    const puedeUsarProductoRecordado = esSeguimiento(mensaje)
+      || temasSeguimiento.some((tema) => tema !== 'general');
+    if (busqueda.estado === 'no_encontrado' && puedeUsarProductoRecordado) {
       const recordado = await leerProductoRecordado(entrada);
       if (recordado?.id) {
         const producto = await obtenerProductoPorId(recordado.id);
@@ -797,6 +917,17 @@ gemini.post('/gemini', async (req, res) => {
         notificarAsesor: false,
         producto: { id: busqueda.producto.id, name: busqueda.producto.name, sku: busqueda.producto.sku },
       });
+    }
+
+    if (esGestionDeCompra(mensaje)) {
+      return res.json(respuestaHumano('solicitud_compra', {
+        ultimoMensaje: ultimoMensajeCliente(mensaje),
+        producto: {
+          id: busqueda.producto.id,
+          name: busqueda.producto.name,
+          sku: busqueda.producto.sku,
+        },
+      }));
     }
 
     const preguntaGemini = busqueda.confianza === 'opcion_recordada'

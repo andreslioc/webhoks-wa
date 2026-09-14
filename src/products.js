@@ -48,6 +48,7 @@ export function normalizarBusqueda(valor) {
     .replace(/\b(presios|prescios|prezios)\b/g, 'precios')
     .replace(/\bbale\b/g, 'vale')
     .replace(/\bsirbe\b/g, 'sirve')
+    .replace(/\bsin sabor\b/g, 'unflavored')
     .replace(/\b(k|ke)\b/g, 'que');
 }
 
@@ -297,6 +298,27 @@ export async function buscarProductosConMasStock(
   return seleccionarProductosConMasStock(filas, limite, excluirIds);
 }
 
+export function seleccionarProductoPorPrecio(productos, extremo = 'menor') {
+  const aptos = (productos || [])
+    .filter((producto) => Number.isFinite(Number(producto.price_cop)) && Number(producto.price_cop) > 0)
+    .filter((producto) => Number.isFinite(Number(producto.stock_units)) && Number(producto.stock_units) > 0)
+    .filter((producto) => fichaApta(producto).apta)
+    .sort((a, b) => Number(a.price_cop) - Number(b.price_cop));
+  return extremo === 'mayor' ? aptos.at(-1) || null : aptos[0] || null;
+}
+
+export async function buscarProductoPorPrecio(extremo = 'menor', fetchImpl = fetch) {
+  const orden = extremo === 'mayor' ? 'desc' : 'asc';
+  const filas = await consultarSupabase({
+    select: DETALLE,
+    price_cop: 'gt.0',
+    stock_units: 'gt.0',
+    order: `price_cop.${orden}`,
+    limit: '12',
+  }, fetchImpl);
+  return seleccionarProductoPorPrecio(filas, extremo);
+}
+
 export async function obtenerProductoPorId(id, fetchImpl = fetch) {
   if (!id) return null;
   const filas = await consultarSupabase({ select: DETALLE, id: `eq.${id}`, limit: '1' }, fetchImpl);
@@ -514,9 +536,11 @@ export function detectarTema(mensaje) {
   const texto = normalizarBusqueda(mensaje);
   const temas = [];
   if (/\b(precio|precios|cuanto|cuesta|vale|valor)\b/.test(texto)) temas.push('precio');
-  if (/\b(usar|usa|uso|tomar|toma|aplicar|aplica|dosis|preparar|prepara|preparo|mezclar|mezcla|disolver|disuelve)\b/.test(texto)) temas.push('uso');
+  if (/\b(usar(?:lo|la|los|las)?|usa|uso|tomar(?:lo|la|los|las)?|toma|aplicar(?:lo|la|los|las)?|aplica|dosis|preparar(?:lo|la|los|las)?|prepara|preparo|mezclar(?:lo|la|los|las)?|mezcla|disolver(?:lo|la|los|las)?|disuelve)\b/.test(texto)) temas.push('uso');
   if (/\b(para que|sirve|beneficio|beneficios|ayuda)\b/.test(texto)) temas.push('beneficios');
-  if (/\b(ingrediente|ingredientes|contiene|composicion)\b/.test(texto)) temas.push('composicion');
+  if (/\b(ingrediente|ingredientes|contiene|contienen|composicion)\b/.test(texto)) temas.push('composicion');
+  if (/\b(presentacion|formato|frasco|envase|cuanto trae|cuantas trae|cuantas (capsulas|gomitas|tabletas|porciones)|cantidad)\b/.test(texto)) temas.push('presentacion');
+  if (/\b(sabor|sabores|color|tono|marca|fabricante|fabrica|vegano|vegana|vegetariano|vegetariana|gluten|azucar|gmo|organico|organica)\b/.test(texto)) temas.push('caracteristicas');
   if (/\b(diferencia|diferencias|comparar|comparacion|comparaciones|mejor)\b/.test(texto)) temas.push('diferencias');
   if (/\b(seguro|precaucion|contraindicacion|advertencia|embarazo|medicamento)\b/.test(texto)) temas.push('seguridad');
   return temas.length ? temas : ['general'];
@@ -595,6 +619,17 @@ export function construirContextoProducto(producto, mensaje) {
   if (temas.includes('composicion')) {
     contexto.ingredientes_activos = recortar(producto.active_ingredients);
     if (!contexto.ingredientes_activos) contexto.respuestas_verificadas = recortar(producto.live_ready, 1_600);
+  }
+  if (temas.includes('caracteristicas')) {
+    contexto.descripcion = recortar(producto.description, 700);
+    contexto.afirmaciones_permitidas = recortar(producto.claims_allowed, 900);
+    contexto.detalle_verificado = recortar({
+      que_es: full.what_it_is,
+      diferencia: full.different,
+    }, 700);
+    if (!contexto.descripcion && !contexto.afirmaciones_permitidas && !contexto.detalle_verificado) {
+      contexto.respuestas_verificadas = recortar(producto.live_ready, 1_000);
+    }
   }
   if (temas.includes('diferencias')) {
     contexto.diferencia = recortar(full.different);

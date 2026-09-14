@@ -9,6 +9,7 @@ import {
   normalizarBusqueda,
   puntuarProducto,
   seleccionarProducto,
+  seleccionarProductoPorPrecio,
   seleccionarProductosConMasStock,
   seleccionarProductosCoincidentes,
   seleccionarPorNecesidad,
@@ -171,6 +172,16 @@ test('encuentra una referencia aunque el cliente escriba varias palabras con err
   assert.deepEqual(detectarTema('¿Para ke sirbe?'), ['beneficios']);
 });
 
+test('distingue una presentación sin sabor aunque el catálogo use unflavored', () => {
+  const productos = [
+    { id: 'sabor', name: 'MaxCalm Magnesium Glycinate Drink Mix', keywords: ['maxcalm', 'frambuesa limón'] },
+    { id: 'sin-sabor', name: 'MaxCalm Powder Unflavored', keywords: ['maxcalm'] },
+  ];
+  const resultado = seleccionarProducto(productos, 'Quiero comprar MaxCalm sin sabor');
+  assert.equal(resultado.estado, 'encontrado');
+  assert.equal(resultado.producto.id, 'sin-sabor');
+});
+
 test('selecciona productos verificados con mayor inventario para una consulta general', () => {
   const ficha = {
     price_cop: 50000,
@@ -195,6 +206,24 @@ test('selecciona productos verificados con mayor inventario para una consulta ge
     ], 2, ['highest']).map((producto) => producto.id),
     ['medium', 'low'],
   );
+});
+
+test('selecciona el producto de menor precio solo si está verificado y tiene inventario', () => {
+  const ficha = {
+    stock_units: 5,
+    verified_at: '2026-09-01T00:00:00.000Z',
+    advisor_summary: 'Ficha comercial verificada.',
+    full_answer: { what_it_is: 'Producto real.' },
+  };
+  const productos = [
+    { ...ficha, id: 'medio', price_cop: 50000 },
+    { ...ficha, id: 'barato', price_cop: 25000 },
+    { ...ficha, id: 'sin-stock', price_cop: 10000, stock_units: 0 },
+    { ...ficha, id: 'sin-verificar', price_cop: 5000, verified_at: null },
+  ];
+
+  assert.equal(seleccionarProductoPorPrecio(productos, 'menor').id, 'barato');
+  assert.equal(seleccionarProductoPorPrecio(productos, 'mayor').id, 'medio');
 });
 
 test('recuerda acumulativamente los productos generales ya mostrados', async () => {
@@ -237,6 +266,12 @@ test('el contexto de precio no incluye campos extensos de uso', () => {
 
 test('reconoce una pregunta de preparación como uso del producto', () => {
   assert.deepEqual(detectarTema('¿Cómo se prepara?'), ['uso']);
+  assert.deepEqual(detectarTema('¿Cómo debo tomarlas?'), ['uso']);
+  assert.deepEqual(detectarTema('¿Qué contienen?'), ['composicion']);
+  assert.deepEqual(detectarTema('¿Cuál es su presentación y cuánto cuesta?'), ['precio', 'presentacion']);
+  assert.deepEqual(detectarTema('¿Qué sabor tiene y de qué marca es?'), ['caracteristicas']);
+  assert.deepEqual(detectarTema('¿De qué color exacto son?'), ['caracteristicas']);
+  assert.deepEqual(detectarTema('¿Cuántas trae?'), ['presentacion']);
 });
 
 test('usa live_ready cuando la preparación verificada no está en usage_mode', () => {
